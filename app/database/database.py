@@ -22,6 +22,7 @@ class database:
         if session:
             session['_id'] = str(session['_id'])
             session['user_id'] = str(session['user_id'])
+            session['expiration_date'] = str(session['expiration_date'])
         return session
 
     def get_session(self, _id):
@@ -29,12 +30,13 @@ class database:
         if session:
             session['_id'] = str(session['_id'])
             session['user_id'] = str(session['user_id'])
+            session['expiration_date'] = str(session['expiration_date'])
         return session
     
     def is_session_valid(self, _id):
         session = self.get_session(_id)
         if session:
-            if session['expiration_date'] > datetime.utcnow():
+            if datetime.fromisoformat(session['expiration_date'].replace('Z', '+00:00')) > datetime.utcnow():
                 return session['user_id']
         return None
 
@@ -47,6 +49,8 @@ class database:
         user['template_ids'] = [str(template_id) for template_id in user['template_ids']]
         user['name'] = decrypt(user['encrypt_name'])
         user['email'] = decrypt(user['encrypt_email'])
+        user['created_at'] = str(user['created_at'])
+        user['modified_at'] = str(user['modified_at'])
         del user['encrypt_name']
         del user['encrypt_email']
         return user
@@ -134,6 +138,8 @@ class database:
     def decrypt_template(self, template):
         template['_id'] = str(template['_id'])
         template['user_id'] = str(template['user_id'])
+        template['created_at'] = str(template['created_at'])
+        template['modified_at'] = str(template['modified_at'])
         template['name'] = decrypt(template['encrypt_name'])
         template['instructions'] = decrypt(template['encrypt_instructions'])
         template['print'] = decrypt(template['encrypt_print'])
@@ -189,6 +195,14 @@ class database:
     def decrypt_visit(self, visit):
         visit['_id'] = str(visit['_id'])
         visit['user_id'] = str(visit['user_id'])
+        visit['created_at'] = str(visit['created_at'])
+        visit['modified_at'] = str(visit['modified_at'])
+        if visit['template_modified_at']:
+            visit['template_modified_at'] = str(visit['template_modified_at'])
+        if visit['recording_started_at']:
+            visit['recording_started_at'] = str(visit['recording_started_at'])
+        if visit['recording_finished_at']:
+            visit['recording_finished_at'] = str(visit['recording_finished_at'])
         visit['name'] = decrypt(visit['encrypt_name'])
         visit['additional_context'] = decrypt(visit['encrypt_additional_context'])
         visit['transcript'] = decrypt(visit['encrypt_transcript'])
@@ -256,6 +270,7 @@ class database:
         return self.decrypt_visit(visit)
     
     def delete_visit(self, _id, user_id):
+        print("DELETING VISIT", _id, user_id)
         user = self.get_user(user_id)
         user['visit_ids'].remove(_id)
         self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'visit_ids': user['visit_ids']}})

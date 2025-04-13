@@ -85,10 +85,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         while True:
             data = await websocket.receive_json()
             message = WebSocketMessage(**data)
-            
+
             if message.type == "create_template":
                 template = db.create_template(user_id, message.data)
-                await manager.broadcast_to_all_except_sender(websocket, {
+                await manager.broadcast_to_all( {
                     "type": "create_template",
                     "data": template
                 })
@@ -99,26 +99,31 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "data": template
                 })
             elif message.type == "delete_template":
-                db.delete_template(user_id, message.data["template_id"])
-                await manager.broadcast_to_all_except_sender(websocket, {
+                db.delete_template(message.data["template_id"], user_id)
+                await manager.broadcast_to_all( {
                     "type": "delete_template",
                     "data": {"template_id": message.data["template_id"]}
                 })
             elif message.type == "create_visit":
-                visit = db.create_visit(user_id, message.data)
-                await manager.broadcast_to_all_except_sender(websocket, {
+                visit = db.create_visit(user_id)
+                await manager.broadcast_to_all( {
                     "type": "create_visit",
                     "data": visit
                 })
             elif message.type == "update_visit":
-                visit = db.update_visit(user_id, message.data)
-                await manager.broadcast_to_all_except_sender(websocket, {
-                    "type": "update_visit",
-                    "data": visit
-                })
+                print(message.data)
+                if "_id" in message.data:
+                    print("UPDATE VISIT", message.data)
+                    visit = db.update_visit(_id=message.data["_id"], name=message.data["name"], template_id=message.data["template_id"], language=message.data["language"], additional_context=message.data["additional_context"])
+                    await manager.broadcast_to_all_except_sender(websocket, {
+                        "type": "update_visit",
+                        "data": visit
+                    })
             elif message.type == "delete_visit":
-                db.delete_visit(user_id, message.data["visit_id"])
-                await manager.broadcast_to_all_except_sender(websocket, {
+                print(message.data["visit_id"])
+                db.delete_visit(message.data["visit_id"], user_id)
+                print("DELETED VISIT")
+                await manager.broadcast_to_all( {
                     "type": "delete_visit",
                     "data": {"visit_id": message.data["visit_id"]}
                 })
@@ -126,5 +131,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
     except Exception as e:
+        print('ERROR', e)
         await websocket.close(code=1011, reason=str(e))
 
