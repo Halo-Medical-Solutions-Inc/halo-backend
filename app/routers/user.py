@@ -111,18 +111,20 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "data": visit
                 })
             elif message.type == "update_visit":
-                print(message.data)
                 if "_id" in message.data:
-                    print("UPDATE VISIT", message.data)
-                    visit = db.update_visit(_id=message.data["_id"], name=message.data["name"], template_id=message.data["template_id"], language=message.data["language"], additional_context=message.data["additional_context"])
+                    visit = db.update_visit(
+                        _id=message.data["_id"],
+                        name=message.data.get("name", None),
+                        template_id=message.data.get("template_id", None),
+                        language=message.data.get("language", None),
+                        additional_context=message.data.get("additional_context", None)
+                    )
                     await manager.broadcast_to_all_except_sender(websocket, {
                         "type": "update_visit",
                         "data": visit
                     })
             elif message.type == "delete_visit":
-                print(message.data["visit_id"])
                 db.delete_visit(message.data["visit_id"], user_id)
-                print("DELETED VISIT")
                 await manager.broadcast_to_all( {
                     "type": "delete_visit",
                     "data": {"visit_id": message.data["visit_id"]}
