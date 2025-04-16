@@ -1,38 +1,48 @@
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, File, Form
 import os
 import time
+import asyncio
+import json
+from io import BytesIO
+from datetime import datetime
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
-from fastapi.middleware.cors import CORSMiddleware
-import certifi
-from fastapi import File
-
+from deepgram import (
+    DeepgramClient,
+    PrerecordedOptions,
+)
 router = APIRouter()
+
+# Updated database_transcript to use timestamps as keys
+database_transcript = {}
+
+@router.get("/get_transcript")
+async def get_transcript():
+    """Return all transcripts in chronological order"""
+    # Sort the keys (timestamps) and return the transcripts in order
+    sorted_keys = sorted(database_transcript.keys())
+    sorted_transcripts = {k: database_transcript[k] for k in sorted_keys}
+    return sorted_transcripts
 
 @router.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
     await websocket.accept()
-    dg_connection = None
-    print(f"WebSocket connection accepted at {time.time()}")
-
+    print(f"[INFO] WebSocket connection accepted at {time.time()}")
+    
+    import certifi
     os.environ['SSL_CERT_FILE'] = certifi.where()
     os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
     
-    import asyncio
+    dg_connection = None
     main_loop = asyncio.get_running_loop()
-
-    async def send_json_to_websocket(data):
-        await websocket.send_json(data)
-        
-    import wave
-    from io import BytesIO
     audio_data = BytesIO()
-    is_recording = True
-
+    is_finals = []
+    
     try:
         deepgram = DeepgramClient(api_key="451f9f03c579dcee65854d2740824652dfd7e77e")
         dg_connection = deepgram.listen.websocket.v("1")
-        print("Deepgram client initialized")
+        print("[INFO] Deepgram client initialized")
         
+        # Configure Deepgram options
         options = LiveOptions(
             model="nova-3-medical",
             language="en-US",
@@ -44,56 +54,47 @@ async def websocket_transcribe(websocket: WebSocket):
             sample_rate=16000,
         )
         
-        is_finals = []
+        async def send_json_to_websocket(data):
+            await websocket.send_json(data)
         
         def handle_transcript(self, result, **kwargs):
             nonlocal is_finals, main_loop
-            print(f"TRANSCRIPT RECEIVED: {result}")
-            try:
-                if hasattr(result, 'channel') and result.channel and hasattr(result.channel, 'alternatives') and len(result.channel.alternatives) > 0:
-                    transcript_text = result.channel.alternatives[0].transcript
-                    if len(transcript_text) > 0:
-                        print(f"Sending transcript: '{transcript_text}', is_final: {result.is_final}")
-                        
-                        if result.is_final:
-                            is_finals.append(transcript_text)
-                            
-                            if getattr(result, "speech_final", False):
-                                utterance = " ".join(is_finals)
-                                print(f"Complete utterance: {utterance}")
-                                is_finals = []
-                        
-                        asyncio.run_coroutine_threadsafe(
-                            send_json_to_websocket({
-                                "transcript": transcript_text,
-                                "is_final": result.is_final,
-                                "speech_final": getattr(result, "speech_final", False)
-                            }), 
-                            main_loop
-                        )
-                else:
-                    print(f"Transcript structure issue: {result}")
-            except Exception as e:
-                print(f"Error in handle_transcript: {e}")
-                asyncio.run_coroutine_threadsafe(
-                    send_json_to_websocket({"error": f"Transcript handling error: {str(e)}"}),
-                    main_loop
-                )
+            if not hasattr(result, 'channel') or not result.channel or not hasattr(result.channel, 'alternatives') or not result.channel.alternatives:
+                return
+                
+            transcript_text = result.channel.alternatives[0].transcript
+            if not transcript_text:
+                return
+                
+            
+            if result.is_final:
+                is_finals.append(transcript_text)
+                
+                if getattr(result, "speech_final", False):
+                    utterance = " ".join(is_finals)
+                    timestamp = datetime.now().isoformat()
+                    database_transcript[timestamp] = utterance
+                    print(f"[INFO] Transcript: {result}")
+                    is_finals = []
+            
+            asyncio.run_coroutine_threadsafe(
+                send_json_to_websocket({
+                    "transcript": transcript_text,
+                    "is_final": result.is_final,
+                    "speech_final": getattr(result, "speech_final", False)
+                }), 
+                main_loop
+            )
         
         def handle_error(self, error, **kwargs):
-            nonlocal main_loop
-            print(f"DEEPGRAM ERROR: {error}")
+            print(f"[ERROR] Deepgram error: {error}")
             asyncio.run_coroutine_threadsafe(
                 send_json_to_websocket({"error": str(error)}),
                 main_loop
             )
             
-        def handle_metadata(self, metadata, **kwargs):
-            print(f"DEEPGRAM METADATA: {metadata}")
-            
         def handle_connected(self, connected, **kwargs):
-            nonlocal main_loop
-            print(f"DEEPGRAM CONNECTED: {connected}")
+            print(f"[INFO] Deepgram connected")
             asyncio.run_coroutine_threadsafe(
                 send_json_to_websocket({"status": "deepgram_connected"}),
                 main_loop
@@ -101,21 +102,19 @@ async def websocket_transcribe(websocket: WebSocket):
             
         def handle_utterance_end(self, utterance_end, **kwargs):
             nonlocal is_finals
-            print(f"UTTERANCE END: {utterance_end}")
-            if len(is_finals) > 0:
+            if is_finals:
                 utterance = " ".join(is_finals)
-                print(f"Utterance end event, complete utterance: {utterance}")
+                timestamp = datetime.now().isoformat()
+                database_transcript[timestamp] = utterance
+                print(f"[INFO] Utterance ended: {utterance}")
                 is_finals = []
         
         dg_connection.on(LiveTranscriptionEvents.Transcript, handle_transcript)
         dg_connection.on(LiveTranscriptionEvents.Error, handle_error)
-        dg_connection.on(LiveTranscriptionEvents.Metadata, handle_metadata)
         dg_connection.on(LiveTranscriptionEvents.Open, handle_connected)
         dg_connection.on(LiveTranscriptionEvents.UtteranceEnd, handle_utterance_end)
         
-        addons = {"no_delay": "true"}
-        connection_started = dg_connection.start(options, addons=addons)
-        print(f"Deepgram connection started: {connection_started}")
+        dg_connection.start(options, addons={"no_delay": "true"})
         
         await websocket.send_json({"status": "ready_for_audio"})
         
@@ -125,46 +124,34 @@ async def websocket_transcribe(websocket: WebSocket):
         
         while True:
             try:
-                # Set a reasonable timeout to detect inactive connections
                 message = await asyncio.wait_for(websocket.receive(), timeout=5.0)
                 last_activity_time = time.time()
                 
                 if "text" in message:
                     text_data = message["text"]
+                    
+                    if isinstance(text_data, str) and "ping" in text_data.lower():
+                        await websocket.send_json({"status": "pong", "time": time.time()})
+                        continue
+                    
                     try:
-                        # Check for ping messages
-                        if isinstance(text_data, str) and "ping" in text_data.lower():
-                            print(f"Received ping message: {text_data}")
-                            await websocket.send_json({"status": "pong", "time": time.time()})
-                            continue
-                            
-                        # Otherwise try to parse as JSON
-                        import json
                         json_data = json.loads(text_data)
                         
                         if "ping" in json_data:
-                            print(f"Received ping: {json_data['ping']}")
                             await websocket.send_json({"status": "pong", "time": time.time()})
                             continue
                             
                         if json_data.get("text") == "stop_recording":
-                            print("Stop recording command received")
-                            is_recording = False
-                            
-                            audio_bytes = audio_data.getvalue()
-                            if audio_bytes:
-                                await websocket.send_json({"status": "recording_saved", "filename": filename})
-                            
+                            print("[INFO] Stop recording command received")
                             if dg_connection:
                                 dg_connection.finish()
                             break
                     except json.JSONDecodeError:
-                        print(f"Received non-JSON text message: {text_data}")
+                        print(f"[ERROR] Received non-JSON text message: {text_data}")
                 
                 elif "bytes" in message:
                     data = message["bytes"]
                     current_time = time.time()
-                    packet_size = len(data)
                     packet_count += 1
                     
                     audio_data.write(data)
@@ -172,60 +159,49 @@ async def websocket_transcribe(websocket: WebSocket):
                     if packet_count % 50 == 0:
                         time_diff = current_time - last_packet_time
                         rate = 50 / time_diff if time_diff > 0 else 0
-                        print(f"Audio packet #{packet_count}: {packet_size} bytes, {rate:.2f} packets/sec")
+                        print(f"[INFO] Audio packet #{packet_count}: {len(data)} bytes, {rate:.2f} packets/sec")
                         last_packet_time = current_time
                     
                     if dg_connection:
                         try:
                             dg_connection.send(data)
                         except Exception as e:
-                            print(f"Error sending to Deepgram: {e}")
+                            print(f"[ERROR] Error sending to Deepgram: {e}")
                             await websocket.send_json({"error": f"Deepgram send error: {str(e)}"})
-                    else:
-                        print("Warning: dg_connection is None when trying to send data")
                 
-                # Check for inactivity
                 current_time = time.time()
                 if current_time - last_activity_time > 15:
-                    print(f"Connection inactive for 15 seconds, sending ping")
+                    print("[INFO] Connection inactive for 15 seconds, sending ping")
                     await websocket.send_json({"status": "checking_connection"})
                     last_activity_time = current_time
                         
             except asyncio.TimeoutError:
-                print("Timeout waiting for data, sending keepalive")
                 await websocket.send_json({"status": "waiting_for_audio"})
-                continue
             except WebSocketDisconnect:
-                print("WebSocket disconnected")
+                print("[INFO] WebSocket disconnected")
                 break
             except Exception as e:
-                print(f"Error receiving/processing audio data: {e}")
+                print(f"[ERROR] Error processing audio data: {e}")
                 await websocket.send_json({"error": f"Audio processing error: {str(e)}"})
     
     except WebSocketDisconnect:
-        print("WebSocket disconnected")
+        print("[INFO] WebSocket disconnected")
     except Exception as e:
-        print(f"General error in WebSocket handler: {e}")
+        print(f"[ERROR] WebSocket handler error: {e}")
         try:
             await websocket.send_json({"error": str(e)})
         except:
             pass
     finally:
-        if audio_data.getvalue():
-            try:
-                filename = save_audio_to_wav(audio_data.getvalue())
-                print(f"Audio saved on connection close: {filename}")
-            except Exception as e:
-                print(f"Error saving audio on close: {e}")
-                
         if dg_connection:
             dg_connection.finish()
-            print("Deepgram connection finished")
+            print("[INFO] Deepgram connection finished")
 
             
 @router.post("/transcribe")
-async def transcribe(file: bytes = File(...)):
-    try:
+async def transcribe(file: bytes = File(...), timestamp: str = Form(None)):
+    try:     
+        # Process with Deepgram
         deepgram = DeepgramClient(api_key="451f9f03c579dcee65854d2740824652dfd7e77e")
 
         payload = {
@@ -239,7 +215,11 @@ async def transcribe(file: bytes = File(...)):
 
         response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
         
-        response_dict = response
+        if not isinstance(response, dict):
+            response_dict = response.to_dict()
+        else:
+            response_dict = response
+            
         
         transcript = ""
         if (isinstance(response_dict, dict) and
@@ -251,8 +231,15 @@ async def transcribe(file: bytes = File(...)):
             len(response_dict["results"]["channels"][0]["alternatives"]) > 0):
             
             transcript = response_dict["results"]["channels"][0]["alternatives"][0].get("transcript", "")
-        
-        return {"transcript": transcript}
+            
+            # Store the transcript in our database with provided timestamp or current timestamp
+            if transcript:
+                # Use provided timestamp if available, otherwise use current time
+                entry_timestamp = timestamp if timestamp else datetime.now().isoformat()
+                database_transcript[entry_timestamp] = transcript
+                
+        # Return the transcript
+        return transcript
 
     except Exception as e:
         print(f"Transcription error: {e}")
