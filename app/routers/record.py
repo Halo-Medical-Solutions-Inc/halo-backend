@@ -27,17 +27,6 @@ async def websocket_transcribe(websocket: WebSocket):
     from io import BytesIO
     audio_data = BytesIO()
     is_recording = True
-    
-    def save_audio_to_wav(audio_bytes, sample_rate=16000, channels=1):
-        timestamp = int(time.time())
-        filename = f"recording_{timestamp}.wav"
-        with wave.open(filename, 'wb') as wav_file:
-            wav_file.setnchannels(channels)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(sample_rate)
-            wav_file.writeframes(audio_bytes)
-        print(f"Audio saved to {filename}")
-        return filename
 
     try:
         deepgram = DeepgramClient(api_key="451f9f03c579dcee65854d2740824652dfd7e77e")
@@ -45,16 +34,14 @@ async def websocket_transcribe(websocket: WebSocket):
         print("Deepgram client initialized")
         
         options = LiveOptions(
-            model="nova-3",
+            model="nova-3-medical",
             language="en-US",
             smart_format=True,
             encoding="linear16",
+            punctuate=True,
+            diarize=True,
             channels=1,
             sample_rate=16000,
-            interim_results=True,
-            utterance_end_ms="1000",
-            vad_events=True,
-            endpointing=300,
         )
         
         is_finals = []
@@ -134,23 +121,45 @@ async def websocket_transcribe(websocket: WebSocket):
         
         packet_count = 0
         last_packet_time = time.time()
+        last_activity_time = time.time()
         
         while True:
             try:
-                message = await websocket.receive()
+                # Set a reasonable timeout to detect inactive connections
+                message = await asyncio.wait_for(websocket.receive(), timeout=5.0)
+                last_activity_time = time.time()
                 
-                if "text" in message and message["text"] == "stop_recording":
-                    print("Stop recording command received")
-                    is_recording = False
-                    
-                    audio_bytes = audio_data.getvalue()
-                    if audio_bytes:
-                        filename = save_audio_to_wav(audio_bytes)
-                        await websocket.send_json({"status": "recording_saved", "filename": filename})
-                    
-                    if dg_connection:
-                        dg_connection.finish()
-                    break
+                if "text" in message:
+                    text_data = message["text"]
+                    try:
+                        # Check for ping messages
+                        if isinstance(text_data, str) and "ping" in text_data.lower():
+                            print(f"Received ping message: {text_data}")
+                            await websocket.send_json({"status": "pong", "time": time.time()})
+                            continue
+                            
+                        # Otherwise try to parse as JSON
+                        import json
+                        json_data = json.loads(text_data)
+                        
+                        if "ping" in json_data:
+                            print(f"Received ping: {json_data['ping']}")
+                            await websocket.send_json({"status": "pong", "time": time.time()})
+                            continue
+                            
+                        if json_data.get("text") == "stop_recording":
+                            print("Stop recording command received")
+                            is_recording = False
+                            
+                            audio_bytes = audio_data.getvalue()
+                            if audio_bytes:
+                                await websocket.send_json({"status": "recording_saved", "filename": filename})
+                            
+                            if dg_connection:
+                                dg_connection.finish()
+                            break
+                    except json.JSONDecodeError:
+                        print(f"Received non-JSON text message: {text_data}")
                 
                 elif "bytes" in message:
                     data = message["bytes"]
@@ -167,10 +176,25 @@ async def websocket_transcribe(websocket: WebSocket):
                         last_packet_time = current_time
                     
                     if dg_connection:
-                        dg_connection.send(data)
+                        try:
+                            dg_connection.send(data)
+                        except Exception as e:
+                            print(f"Error sending to Deepgram: {e}")
+                            await websocket.send_json({"error": f"Deepgram send error: {str(e)}"})
                     else:
                         print("Warning: dg_connection is None when trying to send data")
+                
+                # Check for inactivity
+                current_time = time.time()
+                if current_time - last_activity_time > 15:
+                    print(f"Connection inactive for 15 seconds, sending ping")
+                    await websocket.send_json({"status": "checking_connection"})
+                    last_activity_time = current_time
                         
+            except asyncio.TimeoutError:
+                print("Timeout waiting for data, sending keepalive")
+                await websocket.send_json({"status": "waiting_for_audio"})
+                continue
             except WebSocketDisconnect:
                 print("WebSocket disconnected")
                 break
