@@ -113,16 +113,40 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
             elif message.type == "update_visit":
                 if "_id" in message.data:
-                    visit = db.update_visit(
-                        _id=message.data["_id"],
-                        name=message.data.get("name", None),
-                        template_id=message.data.get("template_id", None),
-                        language=message.data.get("language", None),
-                        additional_context=message.data.get("additional_context", None)
-                    )
+                    # Create a dictionary with only the fields that were provided
+                    update_fields = {}
+                    if "name" in message.data:
+                        update_fields["name"] = message.data["name"]
+                    if "template_id" in message.data:
+                        update_fields["template_id"] = message.data["template_id"]
+                    if "language" in message.data:
+                        update_fields["language"] = message.data["language"]
+                    if "additional_context" in message.data:
+                        update_fields["additional_context"] = message.data["additional_context"]
+                    if "recording_started_at" in message.data:
+                        update_fields["recording_started_at"] = message.data["recording_started_at"]
+                    if "recording_duration" in message.data:
+                        update_fields["recording_duration"] = message.data["recording_duration"]
+                    if "recording_finished_at" in message.data:
+                        update_fields["recording_finished_at"] = message.data["recording_finished_at"]
+                    if "transcript" in message.data:
+                        update_fields["transcript"] = message.data["transcript"]
+                    if "note" in message.data:
+                        update_fields["note"] = message.data["note"]
+                    
+                    # Pass only the fields that need to be updated
+                    visit = db.update_visit(_id=message.data["_id"], **update_fields)
+                    
+                    # Broadcast only the updated fields
+                    broadcast_data = {"_id": message.data["_id"]}
+                    for key in update_fields:
+                        broadcast_data[key] = visit.get(key)
+                    # Always include modified_at
+                    broadcast_data["modified_at"] = visit.get("modified_at")
+                    
                     await manager.broadcast_to_all_except_sender(websocket, {
                         "type": "update_visit",
-                        "data": visit
+                        "data": broadcast_data
                     })
             elif message.type == "delete_visit":
                 db.delete_visit(message.data["visit_id"], user_id)
