@@ -87,26 +87,27 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             message = WebSocketMessage(**data)
 
             if message.type == "create_template":
-                template = db.create_template(user_id, message.data)
-                await manager.broadcast_to_all( {
+                template = db.create_template(user_id)
+                await manager.broadcast_to_all(websocket, {
                     "type": "create_template",
                     "data": template
                 })
             elif message.type == "update_template":
-                template = db.update_template(user_id, message.data)
-                await manager.broadcast_to_all_except_sender(websocket, {
-                    "type": "update_template",
-                    "data": template
-                })
+                if "_id" in message.data:
+                    template = db.update_template(_id=message.data["_id"], name=message.data.get("name", None), instructions=message.data.get("instructions", None))
+                    await manager.broadcast_to_all_except_sender(websocket, {
+                        "type": "update_template",
+                        "data": template
+                    })
             elif message.type == "delete_template":
                 db.delete_template(message.data["template_id"], user_id)
-                await manager.broadcast_to_all( {
+                await manager.broadcast_to_all(websocket, {
                     "type": "delete_template",
                     "data": {"template_id": message.data["template_id"]}
                 })
             elif message.type == "create_visit":
                 visit = db.create_visit(user_id)
-                await manager.broadcast_to_all( {
+                await manager.broadcast_to_all(websocket, {
                     "type": "create_visit",
                     "data": visit
                 })
@@ -125,7 +126,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     })
             elif message.type == "delete_visit":
                 db.delete_visit(message.data["visit_id"], user_id)
-                await manager.broadcast_to_all( {
+                await manager.broadcast_to_all(websocket, {
                     "type": "delete_visit",
                     "data": {"visit_id": message.data["visit_id"]}
                 })

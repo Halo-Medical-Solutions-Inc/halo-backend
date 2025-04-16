@@ -25,12 +25,15 @@ class ConnectionManager:
                 except Exception as e:
                     print(f"Error sending message to user {user_id}:", e)
                     
-    async def broadcast_to_all(self, message: dict):
+    async def broadcast_to_all(self, sender_websocket: WebSocket, message: dict, ):
         connection_count = 0
         for user_id, user_connections in self.active_connections.items():
             for connection in user_connections:
                 try:
-                    await connection.send_json(message)
+                    message_copy = message.copy()
+                    message_copy["was_requested"] = (connection == sender_websocket)
+                    
+                    await connection.send_json(message_copy)
                     connection_count += 1
                 except Exception as e:
                     print(f"Error sending message to user {user_id}:", e)
