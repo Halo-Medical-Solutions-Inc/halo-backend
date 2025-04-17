@@ -73,6 +73,64 @@ def get_visits(request: GetVisitsRequest):
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
 
+async def handle_create_template(websocket: WebSocket, user_id: str, data: dict):
+    template = db.create_template(user_id)
+    await manager.broadcast_to_all(websocket, {
+        "type": "create_template",
+        "data": template
+    })
+
+async def handle_update_template(websocket: WebSocket, user_id: str, data: dict):
+    if "_id" in data:
+        valid_fields = [    
+            "name", "instructions"
+        ]
+        update_fields = {k: v for k, v in data.items() if k in valid_fields}
+        template = db.update_template(_id=data["_id"], **update_fields)
+        broadcast_data = {"_id": data["_id"], **{k: template.get(k) for k in update_fields}}
+        await manager.broadcast_to_all_except_sender(websocket, {
+            "type": "update_template",
+            "data": broadcast_data
+        })
+
+async def handle_delete_template(websocket: WebSocket, user_id: str, data: dict):
+    db.delete_template(data["template_id"], user_id)
+    await manager.broadcast_to_all(websocket, {
+        "type": "delete_template",
+        "data": {"template_id": data["template_id"]}
+    })
+
+async def handle_create_visit(websocket: WebSocket, user_id: str, data: dict):
+    visit = db.create_visit(user_id)
+    await manager.broadcast_to_all(websocket, {
+        "type": "create_visit",
+        "data": visit
+    })
+
+async def handle_update_visit(websocket: WebSocket, user_id: str, data: dict):
+    if "_id" in data:
+        valid_fields = [
+            "name", "template_id", "language", "additional_context",
+            "recording_started_at", "recording_duration", "recording_finished_at",
+            "transcript", "note"
+        ]
+        update_fields = {k: v for k, v in data.items() if k in valid_fields}
+        visit = db.update_visit(_id=data["_id"], **update_fields)
+        broadcast_data = {"_id": data["_id"], **{k: visit.get(k) for k in update_fields}}
+        broadcast_data["modified_at"] = visit.get("modified_at")
+        await manager.broadcast_to_all_except_sender(websocket, {
+            "type": "update_visit",
+            "data": broadcast_data
+        })
+
+async def handle_delete_visit(websocket: WebSocket, user_id: str, data: dict):
+    db.delete_visit(data["visit_id"], user_id)
+    await manager.broadcast_to_all(websocket, {
+        "type": "delete_visit",
+        "data": {"visit_id": data["visit_id"]}
+    })
+
+
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     user_id = db.is_session_valid(session_id)
@@ -87,73 +145,19 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             message = WebSocketMessage(**data)
 
             if message.type == "create_template":
-                template = db.create_template(user_id)
-                await manager.broadcast_to_all(websocket, {
-                    "type": "create_template",
-                    "data": template
-                })
+                await handle_create_template(websocket, user_id, message.data)
             elif message.type == "update_template":
-                if "_id" in message.data:
-                    template = db.update_template(_id=message.data["_id"], name=message.data.get("name", None), instructions=message.data.get("instructions", None))
-                    await manager.broadcast_to_all_except_sender(websocket, {
-                        "type": "update_template",
-                        "data": template
-                    })
+                await handle_update_template(websocket, user_id, message.data)
             elif message.type == "delete_template":
-                db.delete_template(message.data["template_id"], user_id)
-                await manager.broadcast_to_all(websocket, {
-                    "type": "delete_template",
-                    "data": {"template_id": message.data["template_id"]}
-                })
+                await handle_delete_template(websocket, user_id, message.data)
             elif message.type == "create_visit":
-                visit = db.create_visit(user_id)
-                await manager.broadcast_to_all(websocket, {
-                    "type": "create_visit",
-                    "data": visit
-                })
+                await handle_create_visit(websocket, user_id, message.data)
             elif message.type == "update_visit":
-                if "_id" in message.data:
-                    # Create a dictionary with only the fields that were provided
-                    update_fields = {}
-                    if "name" in message.data:
-                        update_fields["name"] = message.data["name"]
-                    if "template_id" in message.data:
-                        update_fields["template_id"] = message.data["template_id"]
-                    if "language" in message.data:
-                        update_fields["language"] = message.data["language"]
-                    if "additional_context" in message.data:
-                        update_fields["additional_context"] = message.data["additional_context"]
-                    if "recording_started_at" in message.data:
-                        update_fields["recording_started_at"] = message.data["recording_started_at"]
-                    if "recording_duration" in message.data:
-                        update_fields["recording_duration"] = message.data["recording_duration"]
-                    if "recording_finished_at" in message.data:
-                        update_fields["recording_finished_at"] = message.data["recording_finished_at"]
-                    if "transcript" in message.data:
-                        update_fields["transcript"] = message.data["transcript"]
-                    if "note" in message.data:
-                        update_fields["note"] = message.data["note"]
-                    
-                    # Pass only the fields that need to be updated
-                    visit = db.update_visit(_id=message.data["_id"], **update_fields)
-                    
-                    # Broadcast only the updated fields
-                    broadcast_data = {"_id": message.data["_id"]}
-                    for key in update_fields:
-                        broadcast_data[key] = visit.get(key)
-                    # Always include modified_at
-                    broadcast_data["modified_at"] = visit.get("modified_at")
-                    
-                    await manager.broadcast_to_all_except_sender(websocket, {
-                        "type": "update_visit",
-                        "data": broadcast_data
-                    })
+                await handle_update_visit(websocket, user_id, message.data)
             elif message.type == "delete_visit":
-                db.delete_visit(message.data["visit_id"], user_id)
-                await manager.broadcast_to_all(websocket, {
-                    "type": "delete_visit",
-                    "data": {"visit_id": message.data["visit_id"]}
-                })
+                await handle_delete_visit(websocket, user_id, message.data)
+            elif message.type == "start_recording":
+                await handle_start_recording(websocket, user_id, message.data)
             
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)

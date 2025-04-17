@@ -10,21 +10,23 @@ from deepgram import (
     DeepgramClient,
     PrerecordedOptions,
 )
+from app.database.database import database
 router = APIRouter()
 
 # Updated database_transcript to use timestamps as keys
 database_transcript = {}
+db = database()
 
 @router.get("/get_transcript")
 async def get_transcript():
-    """Return all transcripts in chronological order"""
-    # Sort the keys (timestamps) and return the transcripts in order
-    sorted_keys = sorted(database_transcript.keys())
+    """Return all transcripts in reverse chronological order (latest first)"""
+    # Sort the keys (timestamps) in reverse order to get latest first
+    sorted_keys = sorted(database_transcript.keys(), reverse=True)
     sorted_transcripts = {k: database_transcript[k] for k in sorted_keys}
     return sorted_transcripts
 
 @router.websocket("/ws/transcribe")
-async def websocket_transcribe(websocket: WebSocket):
+async def websocket_transcribe(websocket: WebSocket, session_id: str, visit_id: str):
     await websocket.accept()
     print(f"[INFO] WebSocket connection accepted at {time.time()}")
     
@@ -38,10 +40,10 @@ async def websocket_transcribe(websocket: WebSocket):
     is_finals = []
     
     try:
+        
         deepgram = DeepgramClient(api_key="451f9f03c579dcee65854d2740824652dfd7e77e")
         dg_connection = deepgram.listen.websocket.v("1")
         print("[INFO] Deepgram client initialized")
-        
         # Configure Deepgram options
         options = LiveOptions(
             model="nova-3-medical",
@@ -65,7 +67,7 @@ async def websocket_transcribe(websocket: WebSocket):
             transcript_text = result.channel.alternatives[0].transcript
             if not transcript_text:
                 return
-                
+            
             
             if result.is_final:
                 is_finals.append(transcript_text)
@@ -73,8 +75,9 @@ async def websocket_transcribe(websocket: WebSocket):
                 if getattr(result, "speech_final", False):
                     utterance = " ".join(is_finals)
                     timestamp = datetime.now().isoformat()
-                    database_transcript[timestamp] = utterance
-                    print(f"[INFO] Transcript: {result}")
+                    database_transcript[timestamp] = utterance    
+                    visit_transcript = db.get_visit(visit_id).get("transcript", "")
+                    db.update_visit(visit_id, transcript=f"{visit_transcript}[{timestamp}]: {utterance}\n\n")
                     is_finals = []
             
             asyncio.run_coroutine_threadsafe(
@@ -121,12 +124,13 @@ async def websocket_transcribe(websocket: WebSocket):
         packet_count = 0
         last_packet_time = time.time()
         last_activity_time = time.time()
+        last_deepgram_time = time.time()
         
         while True:
             try:
                 message = await asyncio.wait_for(websocket.receive(), timeout=5.0)
                 last_activity_time = time.time()
-                
+
                 if "text" in message:
                     text_data = message["text"]
                     
@@ -165,11 +169,23 @@ async def websocket_transcribe(websocket: WebSocket):
                     if dg_connection:
                         try:
                             dg_connection.send(data)
+                            last_deepgram_time = current_time
                         except Exception as e:
                             print(f"[ERROR] Error sending to Deepgram: {e}")
                             await websocket.send_json({"error": f"Deepgram send error: {str(e)}"})
                 
                 current_time = time.time()
+                
+                # Send keep-alive packet to Deepgram if no data sent in last 8 seconds
+                if dg_connection and current_time - last_deepgram_time > 8:
+                    print("[INFO] Sending keep-alive packet to Deepgram")
+                    # Create a small silent audio packet (a few samples of zeros)
+                    # Linear16 format: 2 bytes per sample at 16kHz
+                    keep_alive_data = bytes(16)  # 8 samples of silence (16 bytes)
+                    dg_connection.send(keep_alive_data)
+                    last_deepgram_time = current_time
+                
+                # Check client connection
                 if current_time - last_activity_time > 15:
                     print("[INFO] Connection inactive for 15 seconds, sending ping")
                     await websocket.send_json({"status": "checking_connection"})
@@ -177,6 +193,15 @@ async def websocket_transcribe(websocket: WebSocket):
                         
             except asyncio.TimeoutError:
                 await websocket.send_json({"status": "waiting_for_audio"})
+                
+                # Also send keep-alive to Deepgram on timeout if needed
+                current_time = time.time()
+                if dg_connection and current_time - last_deepgram_time > 8:
+                    print("[INFO] Sending keep-alive packet to Deepgram during timeout")
+                    keep_alive_data = bytes(16)
+                    dg_connection.send(keep_alive_data)
+                    last_deepgram_time = current_time
+                    
             except WebSocketDisconnect:
                 print("[INFO] WebSocket disconnected")
                 break
@@ -199,7 +224,7 @@ async def websocket_transcribe(websocket: WebSocket):
 
             
 @router.post("/transcribe")
-async def transcribe(file: bytes = File(...), timestamp: str = Form(None)):
+async def transcribe(file: bytes = File(...), timestamp: str = Form(None), session_id: str = Form(None), visit_id: str = Form(None)):
     try:     
         # Process with Deepgram
         deepgram = DeepgramClient(api_key="451f9f03c579dcee65854d2740824652dfd7e77e")
@@ -237,6 +262,8 @@ async def transcribe(file: bytes = File(...), timestamp: str = Form(None)):
                 # Use provided timestamp if available, otherwise use current time
                 entry_timestamp = timestamp if timestamp else datetime.now().isoformat()
                 database_transcript[entry_timestamp] = transcript
+                visit_transcript = db.get_visit(visit_id).get("transcript", "")
+                db.update_visit(visit_id, transcript=f"{visit_transcript}[{entry_timestamp}]: {transcript}\n\n")
                 
         # Return the transcript
         return transcript

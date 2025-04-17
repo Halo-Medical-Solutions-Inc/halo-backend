@@ -239,8 +239,10 @@ class database:
 
         return self.decrypt_visit(visit)
     
-    def update_visit(self, _id, name=None, template_modified_at=None, template_id=None, language=None, additional_context=None, recording_started_at=None, recording_duration=None, recording_finished_at=None, transcript=None, note=None):
+    def update_visit(self, _id, status=None, name=None, template_modified_at=None, template_id=None, language=None, additional_context=None, recording_started_at=None, recording_duration=None, recording_finished_at=None, transcript=None, note=None):
         update_fields = {}
+        if status is not None:
+            update_fields['status'] = status
         if name is not None:
             update_fields['encrypt_name'] = encrypt(name)
         if template_modified_at is not None:
