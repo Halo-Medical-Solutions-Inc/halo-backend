@@ -156,8 +156,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await handle_update_visit(websocket, user_id, message.data)
             elif message.type == "delete_visit":
                 await handle_delete_visit(websocket, user_id, message.data)
-            elif message.type == "start_recording":
-                await handle_start_recording(websocket, user_id, message.data)
             
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)

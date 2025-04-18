@@ -61,3 +61,4 @@ class WebSocketResponse(BaseModel):
     type: Literal["create_template", "update_template", "delete_template", 
                  "create_visit", "update_visit", "delete_visit", "start_recording", "pause_recording", "resume_recording", "finish_recording", "audio_chunk"]
     data: dict 
+    was_requested: bool
