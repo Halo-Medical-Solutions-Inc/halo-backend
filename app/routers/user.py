@@ -10,8 +10,9 @@ db = database()
 @router.post("/signin")
 def signin(request: SignInRequest):
     user = db.verify_user(request.email, request.password)
+    print(user)
     if user:
-        session = db.create_session(user['_id'])
+        session = db.create_session(user['user_id'])
         return session
     else:
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -20,7 +21,7 @@ def signin(request: SignInRequest):
 def signup(request: SignUpRequest):
     user = db.create_user(request.name, request.email, request.password)
     if user:
-        session = db.create_session(user['_id'])
+        session = db.create_session(user['user_id'])
         return session
     else:
         raise HTTPException(status_code=400, detail="Failed to create user")
