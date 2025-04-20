@@ -3,6 +3,11 @@ from app.models.requests import (
 )
 from fastapi import APIRouter, HTTPException
 from app.database.database import database
+from app.services.connection import manager
+from fastapi.websockets import WebSocket, WebSocketDisconnect
+from app.models.requests import WebSocketMessage
+from app.routers.template import handle_create_template, handle_update_template, handle_delete_template
+from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit
 
 router = APIRouter()
 db = database()
@@ -53,3 +58,35 @@ def get_visits(request: GetVisitsRequest):
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
 
+
+@router.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    user_id = db.is_session_valid(session_id)
+    if not user_id:
+        await websocket.close(code=1008, reason="Invalid session")
+        return
+
+    await manager.connect(websocket, user_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            message = WebSocketMessage(**data)
+
+            if message.type == "create_template":
+                await handle_create_template(websocket, user_id, message.data)
+            elif message.type == "update_template":
+                await handle_update_template(websocket, user_id, message.data)
+            elif message.type == "delete_template":
+                await handle_delete_template(websocket, user_id, message.data)
+            elif message.type == "create_visit":
+                await handle_create_visit(websocket, user_id, message.data)
+            elif message.type == "update_visit":
+                await handle_update_visit(websocket, user_id, message.data)
+            elif message.type == "delete_visit":
+                await handle_delete_visit(websocket, user_id, message.data)
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user_id)
+    except Exception as e:
+        print('ERROR', e)
+        await websocket.close(code=1011, reason=str(e))
