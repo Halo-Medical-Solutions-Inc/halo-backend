@@ -20,12 +20,12 @@ class GetVisitsRequest(BaseModel):
 
 class WebSocketMessage(BaseModel):
     type: Literal["create_template", "update_template", "delete_template", 
-                 "create_visit", "update_visit", "delete_visit"]
+                 "create_visit", "update_visit", "delete_visit", "update_user", "start_recording", "pause_recording", "resume_recording", "finish_recording", "audio_chunk", "transcribe_audio"]
     session_id: str
     data: dict
 
 class WebSocketResponse(BaseModel):
     type: Literal["create_template", "update_template", "delete_template", 
-                 "create_visit", "update_visit", "delete_visit"]
+                 "create_visit", "update_visit", "delete_visit", "update_user", "start_recording", "pause_recording", "resume_recording", "finish_recording", "audio_chunk", "transcribe_audio"]
     data: dict 
     was_requested: bool

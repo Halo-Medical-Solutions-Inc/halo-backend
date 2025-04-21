@@ -8,6 +8,7 @@ from fastapi.websockets import WebSocket, WebSocketDisconnect
 from app.models.requests import WebSocketMessage
 from app.routers.template import handle_create_template, handle_update_template, handle_delete_template
 from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit
+from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording, handle_audio_chunk, handle_transcribe_audio
 
 router = APIRouter()
 db = database()
@@ -58,6 +59,26 @@ def get_visits(request: GetVisitsRequest):
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
 
+async def handle_update_user(websocket: WebSocket, user_id: str, data: dict):
+    if "user_id" in data:
+        valid_fields = [
+            "name", "user_specialty", "default_template_id", "default_language"
+        ]
+        update_fields = {k: v for k, v in data.items() if k in valid_fields}
+        user = db.update_user(user_id=data["user_id"], **update_fields)
+        broadcast_data = {"user_id": data["user_id"], **{k: user.get(k) for k in update_fields}}
+        broadcast_data["modified_at"] = user.get("modified_at")
+        await manager.broadcast_to_all_except_sender(websocket, {
+            "type": "update_user",
+            "data": broadcast_data
+        })
+        await manager.broadcast_to_user(websocket, {
+            "type": "update_user",
+            "data": {
+                "user_id": data["user_id"],
+                "modified_at": user.get("modified_at")
+            }
+        })
 
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -84,7 +105,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await handle_update_visit(websocket, user_id, message.data)
             elif message.type == "delete_visit":
                 await handle_delete_visit(websocket, user_id, message.data)
-            
+            elif message.type == "update_user":
+                await handle_update_user(websocket, user_id, message.data)
+            elif message.type == "start_recording":
+                await handle_start_recording(websocket, user_id, message.data)
+            elif message.type == "pause_recording":
+                await handle_pause_recording(websocket, user_id, message.data)
+            elif message.type == "resume_recording":
+                await handle_resume_recording(websocket, user_id, message.data)
+            elif message.type == "finish_recording":
+                await handle_finish_recording(websocket, user_id, message.data)
+            elif message.type == "audio_chunk":
+                await handle_audio_chunk(websocket, user_id, message.data)
+            elif message.type == "transcribe_audio":
+                await handle_transcribe_audio(websocket, user_id, message.data)
+
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
     except Exception as e:

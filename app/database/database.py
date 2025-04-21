@@ -71,6 +71,7 @@ class database:
             'encrypt_name': encrypt(name),
             'encrypt_email': encrypt(email),
             'hash_password': hash_password(password),
+            'user_specialty': '',
             'default_template_id': '',
             'default_language': 'en',
             'template_ids': [],
@@ -80,7 +81,7 @@ class database:
 
         return self.decrypt_user(user)
     
-    def update_user(self, user_id, name=None, email=None, password=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
+    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
         update_fields = {}
         if name is not None:
             update_fields['encrypt_name'] = encrypt(name)
@@ -92,6 +93,8 @@ class database:
             update_fields['default_template_id'] = default_template_id
         if default_language is not None:
             update_fields['default_language'] = default_language
+        if user_specialty is not None:
+            update_fields['user_specialty'] = user_specialty
         if template_ids is not None:
             update_fields['template_ids'] = template_ids
         if visit_ids is not None:

@@ -26,7 +26,14 @@ async def handle_update_visit(websocket: WebSocket, user_id: str, data: dict):
             "type": "update_visit",
             "data": broadcast_data
         })
-
+        await manager.broadcast_to_user(websocket, {
+            "type": "update_visit",
+            "data": {
+                "visit_id": data["visit_id"],
+                "modified_at": visit.get("modified_at")
+            }
+        })
+        
 async def handle_delete_visit(websocket: WebSocket, user_id: str, data: dict):
     if "visit_id" in data:
         db.delete_visit(data["visit_id"], user_id)

@@ -17,14 +17,14 @@ class ConnectionManager:
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
                 
-    async def broadcast_to_user(self, user_id: str, message: dict):
-        if user_id in self.active_connections:
-            for connection in self.active_connections[user_id]:
-                try:
-                    await connection.send_json(message)
-                except Exception as e:
-                    print(f"Error sending message to user {user_id}:", e)
-                    
+    async def broadcast_to_user(self, sender_websocket: WebSocket, message: dict):
+        try:
+            message_copy = message.copy()
+            message_copy["was_requested"] = True
+            await sender_websocket.send_json(message_copy)
+        except Exception as e:
+            print(f"Error sending message to websocket:", e)
+            
     async def broadcast_to_all(self, sender_websocket: WebSocket, message: dict, ):
         connection_count = 0
         for user_id, user_connections in self.active_connections.items():
