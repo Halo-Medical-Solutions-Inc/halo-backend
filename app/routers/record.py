@@ -11,6 +11,7 @@ from deepgram import (
     PrerecordedOptions,
 )
 from app.database.database import database
+from app.services.transcriber import RealtimeTranscriber
 router = APIRouter()
 
 # Updated database_transcript to use timestamps as keys
@@ -25,8 +26,8 @@ async def get_transcript():
     sorted_transcripts = {k: database_transcript[k] for k in sorted_keys}
     return sorted_transcripts
 
-@router.websocket("/ws/transcribe")
-async def websocket_transcribe(websocket: WebSocket, session_id: str, visit_id: str):
+@router.websocket("/ws/transcribe2")
+async def websocket_transcribe(websocket: WebSocket):
     await websocket.accept()
     print(f"[INFO] WebSocket connection accepted at {time.time()}")
     
@@ -76,8 +77,6 @@ async def websocket_transcribe(websocket: WebSocket, session_id: str, visit_id: 
                     utterance = " ".join(is_finals)
                     timestamp = datetime.now().isoformat()
                     database_transcript[timestamp] = utterance    
-                    visit_transcript = db.get_visit(visit_id).get("transcript", "")
-                    db.update_visit(visit_id, transcript=f"{visit_transcript}[{timestamp}]: {utterance}\n\n")
                     is_finals = []
             
             asyncio.run_coroutine_threadsafe(
@@ -271,3 +270,69 @@ async def transcribe(file: bytes = File(...), timestamp: str = Form(None), sessi
     except Exception as e:
         print(f"Transcription error: {e}")
         raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
+
+@router.websocket("/ws/transcribe")
+async def websocket_transcribe2(websocket: WebSocket):
+    await websocket.accept()
+    print(f"[INFO] WebSocket connection accepted at {time.time()}")
+    
+    audio_data = BytesIO()
+    transcriber = None
+    
+    try:
+        # Define the callback function that will handle transcription results
+        async def handle_transcription(result, loop=None):
+            if "transcript" in result and result.get("is_final", False):
+                timestamp = result.get("timestamp", datetime.now().isoformat())
+                transcript_text = result["transcript"]
+                database_transcript[timestamp] = transcript_text
+        
+        transcriber = RealtimeTranscriber(
+            websocket=websocket,
+            callback=handle_transcription,
+            model="nova-3-medical"
+        )
+        await transcriber.setup_connection()
+        
+        while True:
+            try:
+                message = await asyncio.wait_for(websocket.receive(), timeout=5.0)
+
+                if "bytes" in message:
+                    data = message["bytes"]
+                    await transcriber.process_audio_chunk(data)
+                    
+                elif "text" in message:
+                    text_data = message["text"]
+                    
+                    try:
+                        json_data = json.loads(text_data)
+                        if json_data.get("text") == "stop_recording":
+                            print("[INFO] Stop recording command received")
+                            break
+                    except json.JSONDecodeError:
+                        pass
+                        
+            except asyncio.TimeoutError:
+                await websocket.send_json({"status": "waiting_for_audio"})
+                    
+            except WebSocketDisconnect:
+                print("[INFO] WebSocket disconnected")
+                break
+            except Exception as e:
+                print(f"[ERROR] Error processing audio data: {e}")
+                await websocket.send_json({"error": f"Audio processing error: {str(e)}"})
+    
+    except WebSocketDisconnect:
+        print("[INFO] WebSocket disconnected")
+    except Exception as e:
+        print(f"[ERROR] WebSocket handler error: {e}")
+        try:
+            await websocket.send_json({"error": str(e)})
+        except:
+            pass
+    finally:
+        if transcriber:
+            transcriber.finish()
+            print("[INFO] Transcriber connection finished")
+

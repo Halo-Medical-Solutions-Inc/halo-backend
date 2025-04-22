@@ -6,7 +6,7 @@ from app.models.requests import (
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from app.database.database import database
 from app.services.connection import manager
-
+from app.services.transcriber import RealtimeTranscriber
 router = APIRouter()
 db = database()
 
@@ -138,11 +138,15 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         await websocket.close(code=1008, reason="Invalid session")
         return
 
+    transcriber = None
+
     await manager.connect(websocket, user_id)
     try:
         while True:
             data = await websocket.receive_json()
             message = WebSocketMessage(**data)
+
+            print(message.type)
 
             if message.type == "create_template":
                 await handle_create_template(websocket, user_id, message.data)
@@ -156,7 +160,69 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await handle_update_visit(websocket, user_id, message.data)
             elif message.type == "delete_visit":
                 await handle_delete_visit(websocket, user_id, message.data)
-            
+            elif message.type == "start_recording":
+                visit_id = message.data["visit_id"]
+                async def handle_transcription(result, loop=None):
+                    if "transcript" in result and result.get("is_final", False):
+                        try:
+                            current_transcript = db.get_visit(visit_id)["transcript"]
+                            new_transcript = current_transcript + "\n" + result["transcript"]
+                            db.update_visit(visit_id, transcript=new_transcript)
+                        except Exception as e:
+                            print(f"Error updating transcript: {e}")
+                transcriber = RealtimeTranscriber(
+                    websocket=websocket,
+                    callback=handle_transcription,
+                    model="nova-3-medical"
+                )
+                await transcriber.setup_connection()
+                db.update_visit(visit_id, status="RECORDING")
+                await manager.broadcast_to_all(websocket, {
+                    "type": "start_recording",
+                    "data": {"visit_id": visit_id, "status": "RECORDING"}
+                })
+            elif message.type == "pause_recording":
+                transcriber.finish()
+                db.update_visit(message.data["visit_id"], status="PAUSED")
+                await manager.broadcast_to_all(websocket, {
+                    "type": "pause_recording",
+                    "data": {"visit_id": message.data["visit_id"], "status": "PAUSED"}
+                })
+            elif message.type == "resume_recording":
+                visit_id = message.data["visit_id"]
+                async def handle_transcription(result, loop=None):
+                    if "transcript" in result and result.get("is_final", False):
+                        current_transcript = db.get_visit(visit_id)["transcript"]
+                        new_transcript = current_transcript + "\n" + result["transcript"]
+                        db.update_visit(visit_id, transcript=new_transcript)
+                transcriber = RealtimeTranscriber(
+                    websocket=websocket,
+                    callback=handle_transcription,
+                    model="nova-3-medical"
+                )
+                await transcriber.setup_connection()
+                db.update_visit(visit_id, status="RECORDING")
+                await manager.broadcast_to_all(websocket, {
+                    "type": "resume_recording",
+                    "data": {"visit_id": visit_id, "status": "RECORDING"}
+                })
+            elif message.type == "finish_recording":
+                transcriber.finish()
+                db.update_visit(message.data["visit_id"], status="FINISHED")
+                await manager.broadcast_to_all(websocket, {
+                    "type": "finish_recording",
+                    "data": {"visit_id": message.data["visit_id"], "status": "FINISHED", "transcript": db.get_visit(message.data["visit_id"])["transcript"]}
+                })
+            elif message.type == "audio_chunk":
+                if "audio" in message.data:
+                    import base64
+                    try:
+                        audio_bytes = base64.b64decode(message.data["audio"])
+                        success = await transcriber.process_audio_chunk(audio_bytes)
+                    except Exception as e:
+                        print(f"Error processing audio chunk: {e}")
+                else:
+                    print("Missing audio data in audio_chunk message")
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
     except Exception as e:
