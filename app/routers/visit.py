@@ -6,7 +6,7 @@ db = database()
 
 async def handle_create_visit(websocket: WebSocket, user_id: str, data: dict):
     visit = db.create_visit(user_id)
-    await manager.broadcast_to_all(websocket, {
+    await manager.broadcast_to_all(websocket, user_id,  {
         "type": "create_visit",
         "data": visit
     })
@@ -22,11 +22,11 @@ async def handle_update_visit(websocket: WebSocket, user_id: str, data: dict):
         visit = db.update_visit(visit_id=data["visit_id"], **update_fields)
         broadcast_data = {"visit_id": data["visit_id"], **{k: visit.get(k) for k in update_fields}}
         broadcast_data["modified_at"] = visit.get("modified_at")
-        await manager.broadcast_to_all_except_sender(websocket, {
+        await manager.broadcast_to_all_except_sender(websocket, user_id, {
             "type": "update_visit",
             "data": broadcast_data
         })
-        await manager.broadcast_to_user(websocket, {
+        await manager.broadcast_to_user(websocket, user_id, {
             "type": "update_visit",
             "data": {
                 "visit_id": data["visit_id"],
@@ -37,7 +37,7 @@ async def handle_update_visit(websocket: WebSocket, user_id: str, data: dict):
 async def handle_delete_visit(websocket: WebSocket, user_id: str, data: dict):
     if "visit_id" in data:
         db.delete_visit(data["visit_id"], user_id)
-        await manager.broadcast_to_all(websocket, {
+        await manager.broadcast_to_all(websocket, user_id, {
             "type": "delete_visit",
             "data": {"visit_id": data["visit_id"]}
         })

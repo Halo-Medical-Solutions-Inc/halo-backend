@@ -6,7 +6,7 @@ from app.database.database import database
 from app.services.connection import manager
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from app.models.requests import WebSocketMessage
-from app.routers.template import handle_create_template, handle_update_template, handle_delete_template
+from app.routers.template import handle_create_template, handle_update_template, handle_delete_template, handle_duplicate_template
 from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit
 from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording, handle_audio_chunk, handle_transcribe_audio
 
@@ -68,11 +68,11 @@ async def handle_update_user(websocket: WebSocket, user_id: str, data: dict):
         user = db.update_user(user_id=data["user_id"], **update_fields)
         broadcast_data = {"user_id": data["user_id"], **{k: user.get(k) for k in update_fields}}
         broadcast_data["modified_at"] = user.get("modified_at")
-        await manager.broadcast_to_all_except_sender(websocket, {
+        await manager.broadcast_to_all_except_sender(websocket, user_id, {
             "type": "update_user",
             "data": broadcast_data
         })
-        await manager.broadcast_to_user(websocket, {
+        await manager.broadcast_to_user(websocket, user_id, {
             "type": "update_user",
             "data": {
                 "user_id": data["user_id"],
@@ -84,7 +84,7 @@ async def handle_update_user(websocket: WebSocket, user_id: str, data: dict):
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     user_id = db.is_session_valid(session_id)
     if not user_id:
-        await websocket.close(code=1008, reason="Invalid session")
+        await websocket.close()
         return
 
     await manager.connect(websocket, user_id)
@@ -93,12 +93,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             data = await websocket.receive_json()
             message = WebSocketMessage(**data)
 
+            if db.is_session_valid(message.session_id) is None:
+                await manager.broadcast_to_user(websocket, user_id, {
+                    "type": "error",
+                    "data": {"message": "Invalid session"}
+                })
+                await websocket.close()
+                return
+
             if message.type == "create_template":
                 await handle_create_template(websocket, user_id, message.data)
             elif message.type == "update_template":
                 await handle_update_template(websocket, user_id, message.data)
             elif message.type == "delete_template":
                 await handle_delete_template(websocket, user_id, message.data)
+            elif message.type == "duplicate_template":
+                await handle_duplicate_template(websocket, user_id, message.data)
             elif message.type == "create_visit":
                 await handle_create_visit(websocket, user_id, message.data)
             elif message.type == "update_visit":
@@ -119,6 +129,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await handle_audio_chunk(websocket, user_id, message.data)
             elif message.type == "transcribe_audio":
                 await handle_transcribe_audio(websocket, user_id, message.data)
+
+            
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
