@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import user
+from app.routers import user, audio
 
 
 app = FastAPI(
@@ -22,3 +22,4 @@ async def root():
     return {"message": "Welcome to the Halo AI Scribe API"}
 
 app.include_router(user.router, prefix="/user", tags=["User Operations"])
+app.include_router(audio.router, prefix="/audio", tags=["Audio Operations"])

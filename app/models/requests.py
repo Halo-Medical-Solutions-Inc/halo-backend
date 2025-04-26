@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 from typing import Literal
+from fastapi import File
+
 class SignInRequest(BaseModel):
     email: str
     password: str
@@ -17,6 +19,14 @@ class GetTemplatesRequest(BaseModel):
 
 class GetVisitsRequest(BaseModel):
     session_id: str
+
+class DeleteAllVisitsForUserRequest(BaseModel):
+    user_id: str
+
+class TranscribeAudioRequest(BaseModel):
+    session_id: str
+    visit_id: str
+    audio_buffer: bytes = File(...)
 
 class WebSocketMessage(BaseModel):
     type: Literal["create_template", "update_template", "delete_template", "duplicate_template",

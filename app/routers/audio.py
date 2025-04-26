@@ -1,38 +1,131 @@
+from fastapi import APIRouter
 from fastapi.websockets import WebSocket
 from app.database.database import database
 from datetime import datetime
+from app.services.deepgram import DeepgramClient
+from app.services.connection import manager
+from app.models.requests import TranscribeAudioRequest
 
+router = APIRouter()
 db = database()
 
-async def handle_start_recording(websocket: WebSocket, user_id: str, data: dict):
-    db.update_visit(visit_id=data["visit_id"], status="recording", recording_started_at=datetime.now())
-    # TODO: create deepgram client
-    pass
+async def handle_start_recording(websocket: WebSocket, user_id: str, data: dict, deepgram: DeepgramClient):
+    visit = db.update_visit(visit_id=data["visit_id"], status="RECORDING", recording_started_at=datetime.now())
+    # try:
+    async def handle_transcription(result, loop=None):
+        print("Result", result)
+        if "transcript" in result and result.get("is_final", False):
+            current_transcript = db.get_visit(visit["visit_id"])["transcript"]
+            new_transcript = current_transcript + "\n[" + result["timestamp"] + "] " + result["transcript"]
+            db.update_visit(visit["visit_id"], transcript=new_transcript)
 
-async def handle_pause_recording(websocket: WebSocket, user_id: str, data: dict):
-    db.update_visit(visit_id=data["visit_id"], status="paused")
-    # TODO: end deepgram client
-    pass
+    await deepgram.setup_connection(handle_transcription, visit["visit_id"])
+    await manager.broadcast_to_all(websocket, user_id, {
+        "type": "start_recording",
+        "data": {
+            "visit_id": visit["visit_id"],
+            "status": visit["status"],
+            "recording_started_at": visit["recording_started_at"],
+        }
+    })  
+    # except Exception as e:
+    #     print(e)
+    #     await manager.broadcast_to_user(websocket, user_id, {
+    #         "type": "error",
+    #         "data": {"message": str(e)}
+    #     })
+    #     return
 
-async def handle_resume_recording(websocket: WebSocket, user_id: str, data: dict):
-    db.update_visit(visit_id=data["visit_id"], status="recording")
-    # TODO: create deepgram client
-    pass
+async def handle_pause_recording(websocket: WebSocket, user_id: str, data: dict, deepgram: DeepgramClient):
+    visit = db.update_visit(visit_id=data["visit_id"], status="PAUSED")
+    # try:
+    await deepgram.close_connection()
+    await manager.broadcast_to_all(websocket, user_id, {
+        "type": "pause_recording",
+        "data": {
+            "visit_id": visit["visit_id"],
+            "status": visit["status"],
+        }
+    })
+    # except Exception as e:
+    #     print(e)
+    #     await manager.broadcast_to_user(websocket, user_id, {
+    #         "type": "error",
+    #         "data": {"message": str(e)}
+    #     })
+    #     return
 
-async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict):
-    db.update_visit(visit_id=data["visit_id"], status="finished", recording_finished_at=datetime.now())
-    # TODO: end deepgram client
-    pass
+async def handle_resume_recording(websocket: WebSocket, user_id: str, data: dict, deepgram: DeepgramClient):
+    visit = db.update_visit(visit_id=data["visit_id"], status="RECORDING")
+    # try:
+    async def handle_transcription(result, loop=None):
+        print("Result", result)
+        if "transcript" in result and result.get("is_final", False):
+            current_transcript = db.get_visit(visit["visit_id"])["transcript"]
+            new_transcript = current_transcript + "\n[" + result["timestamp"] + "] " + result["transcript"]
+            db.update_visit(visit["visit_id"], transcript=new_transcript)
 
-async def handle_audio_chunk(websocket: WebSocket, user_id: str, data: dict):
-    # TODO: process audio chunk
-    # TODO: update database
-    pass
+    await deepgram.setup_connection(handle_transcription, visit["visit_id"])
+    await manager.broadcast_to_all(websocket, user_id, {
+        "type": "resume_recording",
+        "data": {
+            "visit_id": visit["visit_id"],
+            "status": visit["status"],
+        }
+    })
+    # except Exception as e:
+    #     print(e)
+    #     await manager.broadcast_to_user(websocket, user_id, {
+    #         "type": "error",
+    #         "data": {"message": str(e)}
+    #     })
+    #     return
 
-async def handle_transcribe_audio(websocket: WebSocket, user_id: str, data: dict):
-    # TODO: create deepgram client
-    # TODO: transcribe audio
-    # TODO: update database
-    pass
+async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict, deepgram: DeepgramClient):
+    visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", recording_finished_at=datetime.now())
+    
+    # try:
+    await deepgram.close_connection()
+    await manager.broadcast_to_all(websocket, user_id, {
+        "type": "finish_recording",
+        "data": {
+            "visit_id": visit["visit_id"],
+            "status": visit["status"],
+            "recording_finished_at": visit["recording_finished_at"],
+            "recording_duration": visit["recording_duration"],
+            "transcript": visit["transcript"],
+        }
+    })
+    # except Exception as e:
+    #     print(e)
+    #     await manager.broadcast_to_user(websocket, user_id, {
+    #         "type": "error",
+    #         "data": {"message": str(e)}
+    #     })
+    #     return
+async def handle_audio_chunk(websocket: WebSocket, user_id: str, data: dict, deepgram: DeepgramClient):
+    print("Received audio chunk at ", datetime.now())
+    if "audio" in data:
+        import base64
+        try:
+            audio_bytes = base64.b64decode(data["audio"])
+            await deepgram.process_audio_chunk(audio_bytes)
+        except Exception as e:
+            await manager.broadcast_to_user(websocket, user_id, {
+                "type": "error",
+                "data": {"message": str(e)}
+            })
+            return
+    else:
+        await manager.broadcast_to_user(websocket, user_id, {
+            "type": "error",
+            "data": {"message": "Missing audio data in audio_chunk message"}
+        })
+        return
 
+
+@router.post("/process_audio_buffer")
+async def process_audio_buffer(request: TranscribeAudioRequest):
+    deepgram = DeepgramClient()
+    await deepgram.process_audio_buffer(request.audio_buffer)
 

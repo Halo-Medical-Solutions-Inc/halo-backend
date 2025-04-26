@@ -1,5 +1,5 @@
 from app.models.requests import (
-    SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest
+    SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, DeleteAllVisitsForUserRequest
 )
 from fastapi import APIRouter, HTTPException
 from app.database.database import database
@@ -8,7 +8,8 @@ from fastapi.websockets import WebSocket, WebSocketDisconnect
 from app.models.requests import WebSocketMessage
 from app.routers.template import handle_create_template, handle_update_template, handle_delete_template, handle_duplicate_template
 from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit
-from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording, handle_audio_chunk, handle_transcribe_audio
+from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording, handle_audio_chunk
+from app.services.deepgram import DeepgramTranscriber
 
 router = APIRouter()
 db = database()
@@ -16,7 +17,6 @@ db = database()
 @router.post("/signin")
 def signin(request: SignInRequest):
     user = db.verify_user(request.email, request.password)
-    print(user)
     if user:
         session = db.create_session(user['user_id'])
         return session
@@ -58,7 +58,17 @@ def get_visits(request: GetVisitsRequest):
         return visits
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
-
+    
+@router.post("/delete_all_visits_for_user")
+def delete_all_visits_for_user(request: DeleteAllVisitsForUserRequest):
+    user = db.get_user(request.user_id)
+    if user:
+        for visit_id in user['visit_ids']:
+            db.delete_visit(visit_id, request.user_id)
+        return {"message": "All visits deleted"}
+    else:
+        raise HTTPException(status_code=401, detail="Invalid user")
+    
 async def handle_update_user(websocket: WebSocket, user_id: str, data: dict):
     if "user_id" in data:
         valid_fields = [
@@ -88,6 +98,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         return
 
     await manager.connect(websocket, user_id)
+
+    deepgram = DeepgramTranscriber(websocket)
+
+    print("Client connected")
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -100,7 +115,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
                 await websocket.close()
                 return
-
+            
+            
             if message.type == "create_template":
                 await handle_create_template(websocket, user_id, message.data)
             elif message.type == "update_template":
@@ -118,22 +134,44 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             elif message.type == "update_user":
                 await handle_update_user(websocket, user_id, message.data)
             elif message.type == "start_recording":
-                await handle_start_recording(websocket, user_id, message.data)
+                await handle_start_recording(websocket, user_id, message.data, deepgram)
             elif message.type == "pause_recording":
-                await handle_pause_recording(websocket, user_id, message.data)
+                await handle_pause_recording(websocket, user_id, message.data, deepgram)
             elif message.type == "resume_recording":
-                await handle_resume_recording(websocket, user_id, message.data)
+                await handle_resume_recording(websocket, user_id, message.data, deepgram)
             elif message.type == "finish_recording":
-                await handle_finish_recording(websocket, user_id, message.data)
+                await handle_finish_recording(websocket, user_id, message.data, deepgram)
             elif message.type == "audio_chunk":
-                await handle_audio_chunk(websocket, user_id, message.data)
-            elif message.type == "transcribe_audio":
-                await handle_transcribe_audio(websocket, user_id, message.data)
-
-            
+                await handle_audio_chunk(websocket, user_id, message.data, deepgram)
 
     except WebSocketDisconnect:
+        print("Client disconnected")
+        if deepgram.current_recording_visit_id:
+            visit = db.get_visit(deepgram.current_recording_visit_id)
+            if visit and visit["status"] == "RECORDING":
+                db.update_visit(deepgram.current_recording_visit_id, status="PAUSED")
+            await manager.broadcast_to_all(websocket, user_id, {
+                "type": "pause_recording",
+                "data": {
+                    "visit_id": deepgram.current_recording_visit_id,
+                    "status": "PAUSED"
+                }
+            })
+        deepgram.close_connection()
         manager.disconnect(websocket, user_id)
     except Exception as e:
         print('ERROR', e)
+        if deepgram.current_recording_visit_id:
+            visit = db.get_visit(deepgram.current_recording_visit_id)
+            if visit and visit["status"] == "RECORDING":
+                db.update_visit(deepgram.current_recording_visit_id, status="PAUSED")
+                await manager.broadcast_to_all(websocket, user_id, {
+                    "type": "pause_recording",
+                    "data": {
+                        "visit_id": deepgram.current_recording_visit_id,
+                        "status": "PAUSED"
+                    }
+                })
+        deepgram.close_connection()
         await websocket.close(code=1011, reason=str(e))
+
