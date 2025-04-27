@@ -1,7 +1,7 @@
 from app.models.requests import (
     SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, DeleteAllVisitsForUserRequest
 )
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from app.database.database import database
 from app.services.connection import manager
 from fastapi.websockets import WebSocket, WebSocketDisconnect
@@ -10,9 +10,17 @@ from app.routers.template import handle_create_template, handle_update_template,
 from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit
 from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording, handle_audio_chunk
 from app.services.deepgram import DeepgramTranscriber
+from app.routers.visit import handle_regenerate_note
+
+import asyncio
+import threading
+import concurrent.futures
+import functools
 
 router = APIRouter()
 db = database()
+# Thread pool for handling websocket messages
+thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 
 @router.post("/signin")
 def signin(request: SignInRequest):
@@ -90,6 +98,53 @@ async def handle_update_user(websocket: WebSocket, user_id: str, data: dict):
             }
         })
 
+async def run_in_threadpool(func, *args, **kwargs):
+    """Run a function in a thread pool and await its result."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        thread_pool,
+        lambda: func(*args, **kwargs)
+    )
+
+async def process_message_async(websocket, user_id, message_type, data, deepgram=None):
+    """Process a message asynchronously without blocking the main WebSocket loop."""
+    try:
+        if message_type == "create_template":
+            await handle_create_template(websocket, user_id, data)
+        elif message_type == "update_template":
+            await handle_update_template(websocket, user_id, data)
+        elif message_type == "delete_template":
+            await handle_delete_template(websocket, user_id, data)
+        elif message_type == "duplicate_template":
+            await handle_duplicate_template(websocket, user_id, data)
+        elif message_type == "create_visit":
+            await handle_create_visit(websocket, user_id, data)
+        elif message_type == "update_visit":
+            await handle_update_visit(websocket, user_id, data)
+        elif message_type == "delete_visit":
+            await handle_delete_visit(websocket, user_id, data)
+        elif message_type == "update_user":
+            await handle_update_user(websocket, user_id, data)
+        elif message_type == "start_recording" and deepgram:
+            await handle_start_recording(websocket, user_id, data, deepgram)
+        elif message_type == "pause_recording" and deepgram:
+            await handle_pause_recording(websocket, user_id, data, deepgram)
+        elif message_type == "resume_recording" and deepgram:
+            await handle_resume_recording(websocket, user_id, data, deepgram)
+        elif message_type == "finish_recording" and deepgram:
+            await handle_finish_recording(websocket, user_id, data, deepgram)
+        elif message_type == "audio_chunk" and deepgram:
+            await handle_audio_chunk(websocket, user_id, data, deepgram)
+        elif message_type == "regenerate_note":
+            await handle_regenerate_note(websocket, user_id, data)
+
+    except Exception as e:
+        print(f"Error processing message {message_type}: {e}")
+        await manager.broadcast_to_user(websocket, user_id, {
+            "type": "error",
+            "data": {"message": f"Error processing {message_type}: {str(e)}"}
+        })
+
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     user_id = db.is_session_valid(session_id)
@@ -102,6 +157,19 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     deepgram = DeepgramTranscriber(websocket)
 
     print("Client connected")
+    
+    message_queue = asyncio.Queue()
+    
+    async def process_queue():
+        while True:
+            try:
+                message_type, data = await message_queue.get()
+                asyncio.create_task(process_message_async(websocket, user_id, message_type, data, deepgram))
+                message_queue.task_done()
+            except Exception as e:
+                print(f"Error in queue processor: {e}")
+    
+    queue_processor = asyncio.create_task(process_queue())
 
     try:
         while True:
@@ -116,36 +184,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await websocket.close()
                 return
             
-            
-            if message.type == "create_template":
-                await handle_create_template(websocket, user_id, message.data)
-            elif message.type == "update_template":
-                await handle_update_template(websocket, user_id, message.data)
-            elif message.type == "delete_template":
-                await handle_delete_template(websocket, user_id, message.data)
-            elif message.type == "duplicate_template":
-                await handle_duplicate_template(websocket, user_id, message.data)
-            elif message.type == "create_visit":
-                await handle_create_visit(websocket, user_id, message.data)
-            elif message.type == "update_visit":
-                await handle_update_visit(websocket, user_id, message.data)
-            elif message.type == "delete_visit":
-                await handle_delete_visit(websocket, user_id, message.data)
-            elif message.type == "update_user":
-                await handle_update_user(websocket, user_id, message.data)
-            elif message.type == "start_recording":
-                await handle_start_recording(websocket, user_id, message.data, deepgram)
-            elif message.type == "pause_recording":
-                await handle_pause_recording(websocket, user_id, message.data, deepgram)
-            elif message.type == "resume_recording":
-                await handle_resume_recording(websocket, user_id, message.data, deepgram)
-            elif message.type == "finish_recording":
-                await handle_finish_recording(websocket, user_id, message.data, deepgram)
-            elif message.type == "audio_chunk":
-                await handle_audio_chunk(websocket, user_id, message.data, deepgram)
+            if message.type in ["audio_chunk"]:
+                await process_message_async(websocket, user_id, message.type, message.data, deepgram)
+            else:
+                await message_queue.put((message.type, message.data))
 
     except WebSocketDisconnect:
         print("Client disconnected")
+        
         if deepgram.current_recording_visit_id:
             visit = db.get_visit(deepgram.current_recording_visit_id)
             if visit and visit["status"] == "RECORDING":
@@ -160,7 +206,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         deepgram.close_connection()
         manager.disconnect(websocket, user_id)
     except Exception as e:
-        print('ERROR', e)
+        print('ERROR', e)            
         if deepgram.current_recording_visit_id:
             visit = db.get_visit(deepgram.current_recording_visit_id)
             if visit and visit["status"] == "RECORDING":

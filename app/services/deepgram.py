@@ -21,7 +21,7 @@ class DeepgramTranscriber:
         websocket: WebSocket, 
         callback: Callable[[dict, Any], None] = None,
         api_key: str = settings.DEEPGRAM_API_KEY,
-        model: str = "nova-3-medical",
+        model: str = "nova-3",
         **options
     ):
         """
@@ -63,7 +63,7 @@ class DeepgramTranscriber:
         # Configure Deepgram options
         dg_options = LiveOptions(
             model=self.model,
-            language="en-US",
+            language="multi",
             smart_format=True,
             encoding="linear16",
             punctuate=True,
@@ -207,6 +207,5 @@ class DeepgramTranscriber:
             smart_format=True,
         )
         response = self.deepgram.listen.rest.v("1").transcribe_file(payload, options)
-        print("Response", response)
         return response
 
