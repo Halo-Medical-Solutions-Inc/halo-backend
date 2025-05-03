@@ -5,7 +5,7 @@ from datetime import datetime
 from app.services.deepgram import DeepgramClient
 from app.services.connection import manager
 from app.models.requests import TranscribeAudioRequest
-from app.services.anthropic import generate_note, generate_note_stream
+from app.services.anthropic import generate_note_stream
 
 router = APIRouter()
 db = database()
@@ -17,9 +17,12 @@ async def handle_start_recording(websocket: WebSocket, user_id: str, data: dict,
             print("Result", result)
             if "transcript" in result and result.get("is_final", False):
                 current_transcript = db.get_visit(visit["visit_id"])["transcript"]
-                new_transcript = current_transcript + "\n[" + result["timestamp"] + "] " + result["transcript"]
+                timestamp = datetime.fromisoformat(result["timestamp"]).strftime("%H:%M:%S")
+                if current_transcript:
+                    new_transcript = current_transcript + "\n[" + timestamp + "] " + result["transcript"]
+                else:
+                    new_transcript = "[" + timestamp + "] " + result["transcript"]
                 db.update_visit(visit["visit_id"], transcript=new_transcript)
-
         await deepgram.setup_connection(handle_transcription, visit["visit_id"])
         await manager.broadcast_to_all(websocket, user_id, {
             "type": "start_recording",
@@ -63,7 +66,11 @@ async def handle_resume_recording(websocket: WebSocket, user_id: str, data: dict
             print("Result", result)
             if "transcript" in result and result.get("is_final", False):
                 current_transcript = db.get_visit(visit["visit_id"])["transcript"]
-                new_transcript = current_transcript + "\n[" + result["timestamp"] + "] " + result["transcript"]
+                timestamp = datetime.fromisoformat(result["timestamp"]).strftime("%H:%M:%S")
+                if current_transcript:
+                    new_transcript = current_transcript + "\n[" + timestamp + "] " + result["transcript"]
+                else:
+                    new_transcript = "[" + timestamp + "] " + result["transcript"]
                 db.update_visit(visit["visit_id"], transcript=new_transcript)
 
         await deepgram.setup_connection(handle_transcription, visit["visit_id"])
@@ -98,7 +105,7 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
             }
         })
         
-        note = await generate_note_stream(
+        note, note_generated_at = await generate_note_stream(
             template=db.get_template(visit["template_id"])['instructions'], 
             transcript=visit["transcript"], 
             additional_context=visit["additional_context"],
@@ -106,7 +113,7 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
             user_id=user_id,
             visit_id=visit["visit_id"]
         )
-        visit = db.update_visit(visit["visit_id"], note=note, status="FINISHED", template_modified_at=datetime.now())
+        visit = db.update_visit(visit["visit_id"], note=note, status="FINISHED", template_modified_at=note_generated_at)
     except Exception as e:
         print(e)
         await manager.broadcast_to_user(websocket, user_id, {
