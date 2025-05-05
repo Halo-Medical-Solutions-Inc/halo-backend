@@ -126,19 +126,19 @@ class database:
     
     def get_user_templates(self, user_id):
         try:
-            templates = list(self.templates.find({'user_id': user_id}))
-            for template in templates:
-                template = self.decrypt_template(template)
-            return templates
+            user = self.get_user(user_id)
+            template_ids = [ObjectId(tid) for tid in user['template_ids']]
+            templates = list(self.templates.find({'_id': {'$in': template_ids}}))
+            return [self.decrypt_template(template) for template in templates]
         except Exception as e:
             return []
     
     def get_user_visits(self, user_id):
         try:
-            visits = list(self.visits.find({'user_id': user_id}))
-            for visit in visits:
-                visit = self.decrypt_visit(visit)
-            return visits
+            user = self.get_user(user_id)
+            visit_ids = [ObjectId(vid) for vid in user['visit_ids']]
+            visits = list(self.visits.find({'_id': {'$in': visit_ids}}))
+            return [self.decrypt_visit(visit) for visit in visits]
         except Exception as e:
             return []
         

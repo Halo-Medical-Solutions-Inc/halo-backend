@@ -11,7 +11,7 @@ router = APIRouter()
 db = database()
 
 async def handle_start_recording(websocket: WebSocket, user_id: str, data: dict, deepgram: DeepgramClient):
-    visit = db.update_visit(visit_id=data["visit_id"], status="RECORDING", recording_started_at=datetime.now())
+    visit = db.update_visit(visit_id=data["visit_id"], status="RECORDING", recording_started_at=datetime.utcnow())
     try:
         async def handle_transcription(result, loop=None):
             print("Result", result)
@@ -90,7 +90,7 @@ async def handle_resume_recording(websocket: WebSocket, user_id: str, data: dict
         return
 
 async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict, deepgram: DeepgramClient):
-    visit = db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE", recording_finished_at=datetime.now())
+    visit = db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE", recording_finished_at=datetime.utcnow())
 
     try:
         await deepgram.close_connection()

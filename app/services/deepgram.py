@@ -102,7 +102,7 @@ class DeepgramTranscriber:
             
             if getattr(result, "speech_final", False):
                 utterance = " ".join(self.is_finals)
-                timestamp = datetime.now().isoformat()
+                timestamp = datetime.utcnow().isoformat()
                 self.is_finals = []
                 
                 # Call the callback with the result
@@ -143,7 +143,7 @@ class DeepgramTranscriber:
         """Handle utterance end events from Deepgram"""
         if self.is_finals:
             utterance = " ".join(self.is_finals)
-            timestamp = datetime.now().isoformat()
+            timestamp = datetime.utcnow().isoformat()
             self.is_finals = []
             
             # Call the callback with the utterance
