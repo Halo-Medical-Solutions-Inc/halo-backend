@@ -5,10 +5,10 @@ import certifi
 from datetime import datetime
 from typing import Callable, Any
 from fastapi import WebSocket
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions
+from app.config import settings
 
-
-class RealtimeTranscriber:
+class DeepgramTranscriber:
     """
     Handles real-time audio transcription using Deepgram's WebSocket API.
     
@@ -19,9 +19,9 @@ class RealtimeTranscriber:
     def __init__(
         self, 
         websocket: WebSocket, 
-        callback: Callable[[dict, Any], None],
-        api_key: str = "451f9f03c579dcee65854d2740824652dfd7e77e",
-        model: str = "nova-3-medical",
+        callback: Callable[[dict, Any], None] = None,
+        api_key: str = settings.DEEPGRAM_API_KEY,
+        model: str = "nova-3",
         **options
     ):
         """
@@ -44,6 +44,7 @@ class RealtimeTranscriber:
         self.is_finals = []
         self.last_audio_sent_time = time.time()
         self.keep_alive_task = None
+        self.current_recording_visit_id = None
         
         # Set up SSL certificates
         os.environ['SSL_CERT_FILE'] = certifi.where()
@@ -52,15 +53,17 @@ class RealtimeTranscriber:
         # Initialize Deepgram client
         self.deepgram = DeepgramClient(api_key=self.api_key)
         
-    async def setup_connection(self):
+    async def setup_connection(self, callback: Callable[[dict, Any], None], visit_id: str):
         """Set up the connection to Deepgram"""
+        self.callback = callback
         self.main_loop = asyncio.get_running_loop()
         self.dg_connection = self.deepgram.listen.websocket.v("1")
+        self.current_recording_visit_id = visit_id
         
         # Configure Deepgram options
         dg_options = LiveOptions(
             model=self.model,
-            language="en-US",
+            language="multi",
             smart_format=True,
             encoding="linear16",
             punctuate=True,
@@ -93,15 +96,13 @@ class RealtimeTranscriber:
         transcript_text = result.channel.alternatives[0].transcript
         if not transcript_text:
             return
-        
-        print(transcript_text)
-        
+                
         if result.is_final:
             self.is_finals.append(transcript_text)
             
             if getattr(result, "speech_final", False):
                 utterance = " ".join(self.is_finals)
-                timestamp = datetime.now().isoformat()
+                timestamp = datetime.utcnow().isoformat()
                 self.is_finals = []
                 
                 # Call the callback with the result
@@ -142,7 +143,7 @@ class RealtimeTranscriber:
         """Handle utterance end events from Deepgram"""
         if self.is_finals:
             utterance = " ".join(self.is_finals)
-            timestamp = datetime.now().isoformat()
+            timestamp = datetime.utcnow().isoformat()
             self.is_finals = []
             
             # Call the callback with the utterance
@@ -189,10 +190,22 @@ class RealtimeTranscriber:
         except Exception as e:
             print(f"[ERROR] Keep-alive loop error: {e}")
     
-    def finish(self):
+    async def close_connection(self):
         """Close the Deepgram connection"""
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
             
         if self.dg_connection:
             self.dg_connection.finish() 
+
+    async def process_audio_buffer(self, buffer):
+        payload = {
+            "buffer": buffer,
+        }
+        options = PrerecordedOptions(
+            model="nova-3",
+            smart_format=True,
+        )
+        response = self.deepgram.listen.rest.v("1").transcribe_file(payload, options)
+        return response
+

@@ -20,37 +20,40 @@ class database:
         }
         self.sessions.insert_one(session)
         if session:
-            session['_id'] = str(session['_id'])
+            session['session_id'] = str(session['_id'])
             session['user_id'] = str(session['user_id'])
             session['expiration_date'] = str(session['expiration_date'])
+            del session['_id']
         return session
 
-    def get_session(self, _id):
-        session = self.sessions.find_one({'_id': ObjectId(_id)})
+    def get_session(self, session_id):
+        session = self.sessions.find_one({'_id': ObjectId(session_id)})
         if session:
-            session['_id'] = str(session['_id'])
+            session['session_id'] = str(session['_id'])
             session['user_id'] = str(session['user_id'])
             session['expiration_date'] = str(session['expiration_date'])
+            del session['_id']
         return session
     
-    def is_session_valid(self, _id):
-        session = self.get_session(_id)
+    def is_session_valid(self, session_id):
+        session = self.get_session(session_id)
         if session:
             if datetime.fromisoformat(session['expiration_date'].replace('Z', '+00:00')) > datetime.utcnow():
                 return session['user_id']
         return None
 
-    def delete_session(self, _id):
-        self.sessions.delete_one({'_id': ObjectId(_id)})
+    def delete_session(self, session_id):
+        self.sessions.delete_one({'_id': ObjectId(session_id)})
 
     def decrypt_user(self, user):
-        user['_id'] = str(user['_id'])
+        user['user_id'] = str(user['_id'])
         user['visit_ids'] = [str(visit_id) for visit_id in user['visit_ids']]
         user['template_ids'] = [str(template_id) for template_id in user['template_ids']]
         user['name'] = decrypt(user['encrypt_name'])
         user['email'] = decrypt(user['encrypt_email'])
         user['created_at'] = str(user['created_at'])
         user['modified_at'] = str(user['modified_at'])
+        del user['_id']
         del user['encrypt_name']
         del user['encrypt_email']
         return user
@@ -68,6 +71,7 @@ class database:
             'encrypt_name': encrypt(name),
             'encrypt_email': encrypt(email),
             'hash_password': hash_password(password),
+            'user_specialty': '',
             'default_template_id': '',
             'default_language': 'en',
             'template_ids': [],
@@ -76,7 +80,8 @@ class database:
         self.users.insert_one(user)
 
         return self.decrypt_user(user)
-    def update_user(self, _id, name=None, email=None, password=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
+    
+    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
         update_fields = {}
         if name is not None:
             update_fields['encrypt_name'] = encrypt(name)
@@ -88,6 +93,8 @@ class database:
             update_fields['default_template_id'] = default_template_id
         if default_language is not None:
             update_fields['default_language'] = default_language
+        if user_specialty is not None:
+            update_fields['user_specialty'] = user_specialty
         if template_ids is not None:
             update_fields['template_ids'] = template_ids
         if visit_ids is not None:
@@ -95,17 +102,17 @@ class database:
             
         if update_fields:
             update_fields['modified_at'] = datetime.utcnow()
-            self.users.update_one({'_id': ObjectId(_id)}, {'$set': update_fields})
-        user = self.users.find_one({'_id': ObjectId(_id)})
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
+        user = self.users.find_one({'_id': ObjectId(user_id)})
 
         return self.decrypt_user(user)
     
-    def delete_user(self, _id):
-        self.users.delete_one({'_id': ObjectId(_id)})
+    def delete_user(self, user_id):
+        self.users.delete_one({'_id': ObjectId(user_id)})
         return True
     
-    def get_user(self, _id):
-        user = self.users.find_one({'_id': ObjectId(_id)})
+    def get_user(self, user_id):
+        user = self.users.find_one({'_id': ObjectId(user_id)})
         return self.decrypt_user(user)
     
     def verify_user(self, email, password):
@@ -119,30 +126,31 @@ class database:
     
     def get_user_templates(self, user_id):
         try:
-            templates = list(self.templates.find({'user_id': user_id}))
-            for template in templates:
-                template = self.decrypt_template(template)
-            return templates
+            user = self.get_user(user_id)
+            template_ids = [ObjectId(tid) for tid in user['template_ids']]
+            templates = list(self.templates.find({'_id': {'$in': template_ids}}))
+            return [self.decrypt_template(template) for template in templates]
         except Exception as e:
             return []
     
     def get_user_visits(self, user_id):
         try:
-            visits = list(self.visits.find({'user_id': user_id}))
-            for visit in visits:
-                visit = self.decrypt_visit(visit)
-            return visits
+            user = self.get_user(user_id)
+            visit_ids = [ObjectId(vid) for vid in user['visit_ids']]
+            visits = list(self.visits.find({'_id': {'$in': visit_ids}}))
+            return [self.decrypt_visit(visit) for visit in visits]
         except Exception as e:
             return []
         
     def decrypt_template(self, template):
-        template['_id'] = str(template['_id'])
+        template['template_id'] = str(template['_id'])
         template['user_id'] = str(template['user_id'])
         template['created_at'] = str(template['created_at'])
         template['modified_at'] = str(template['modified_at'])
         template['name'] = decrypt(template['encrypt_name'])
         template['instructions'] = decrypt(template['encrypt_instructions'])
         template['print'] = decrypt(template['encrypt_print'])
+        del template['_id']
         del template['encrypt_name']
         del template['encrypt_instructions']
         del template['encrypt_print']
@@ -165,7 +173,7 @@ class database:
 
         return self.decrypt_template(template)
 
-    def update_template(self, _id, name=None, instructions=None, print=None):
+    def update_template(self, template_id, name=None, instructions=None, print=None):
         update_fields = {}
         if name is not None:
             update_fields['encrypt_name'] = encrypt(name)
@@ -176,24 +184,24 @@ class database:
         
         if update_fields:
             update_fields['modified_at'] = datetime.utcnow()
-            self.templates.update_one({'_id': ObjectId(_id)}, {'$set': update_fields})
-        template = self.templates.find_one({'_id': ObjectId(_id)})
+            self.templates.update_one({'_id': ObjectId(template_id)}, {'$set': update_fields})
+        template = self.templates.find_one({'_id': ObjectId(template_id)})
         
         return self.decrypt_template(template)
     
-    def delete_template(self, _id, user_id):
+    def delete_template(self, template_id, user_id):
         user = self.get_user(user_id)
-        user['template_ids'].remove(_id)
+        user['template_ids'].remove(template_id)
         self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'template_ids': user['template_ids']}})
-        self.templates.delete_one({'_id': ObjectId(_id)})
+        self.templates.delete_one({'_id': ObjectId(template_id)})
         return True
 
-    def get_template(self, _id):
-        template = self.templates.find_one({'_id': ObjectId(_id)})
+    def get_template(self, template_id):
+        template = self.templates.find_one({'_id': ObjectId(template_id)})
         return self.decrypt_template(template)
     
     def decrypt_visit(self, visit):
-        visit['_id'] = str(visit['_id'])
+        visit['visit_id'] = str(visit['_id'])
         visit['user_id'] = str(visit['user_id'])
         visit['created_at'] = str(visit['created_at'])
         visit['modified_at'] = str(visit['modified_at'])
@@ -207,6 +215,7 @@ class database:
         visit['additional_context'] = decrypt(visit['encrypt_additional_context'])
         visit['transcript'] = decrypt(visit['encrypt_transcript'])
         visit['note'] = decrypt(visit['encrypt_note'])
+        del visit['_id']
         del visit['encrypt_name']
         del visit['encrypt_additional_context']
         del visit['encrypt_transcript']
@@ -239,7 +248,7 @@ class database:
 
         return self.decrypt_visit(visit)
     
-    def update_visit(self, _id, status=None, name=None, template_modified_at=None, template_id=None, language=None, additional_context=None, recording_started_at=None, recording_duration=None, recording_finished_at=None, transcript=None, note=None):
+    def update_visit(self, visit_id, status=None, name=None, template_modified_at=None, template_id=None, language=None, additional_context=None, recording_started_at=None, recording_duration=None, recording_finished_at=None, transcript=None, note=None):
         update_fields = {}
         if status is not None:
             update_fields['status'] = status
@@ -266,19 +275,18 @@ class database:
 
         if update_fields:
             update_fields['modified_at'] = datetime.utcnow()
-            self.visits.update_one({'_id': ObjectId(_id)}, {'$set': update_fields})
-        visit = self.visits.find_one({'_id': ObjectId(_id)})
+            self.visits.update_one({'_id': ObjectId(visit_id)}, {'$set': update_fields})
+        visit = self.visits.find_one({'_id': ObjectId(visit_id)})
 
         return self.decrypt_visit(visit)
-    
-    def delete_visit(self, _id, user_id):
-        print("DELETING VISIT", _id, user_id)
+
+    def delete_visit(self, visit_id, user_id):
         user = self.get_user(user_id)
-        user['visit_ids'].remove(_id)
+        user['visit_ids'].remove(visit_id)
         self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'visit_ids': user['visit_ids']}})
-        self.visits.delete_one({'_id': ObjectId(_id)})
+        self.visits.delete_one({'_id': ObjectId(visit_id)})
         return True
 
-    def get_visit(self, _id):
-        visit = self.visits.find_one({'_id': ObjectId(_id)})
+    def get_visit(self, visit_id):
+        visit = self.visits.find_one({'_id': ObjectId(visit_id)})
         return self.decrypt_visit(visit)

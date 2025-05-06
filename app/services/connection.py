@@ -17,18 +17,20 @@ class ConnectionManager:
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
                 
-    async def broadcast_to_user(self, user_id: str, message: dict):
+    async def broadcast_to_user(self, sender_websocket: WebSocket, user_id: str, message: dict):
         if user_id in self.active_connections:
             for connection in self.active_connections[user_id]:
                 try:
-                    await connection.send_json(message)
+                    message_copy = message.copy()
+                    message_copy["was_requested"] = (connection == sender_websocket)
+                    await connection.send_json(message_copy)
                 except Exception as e:
                     print(f"Error sending message to user {user_id}:", e)
-                    
-    async def broadcast_to_all(self, sender_websocket: WebSocket, message: dict, ):
+            
+    async def broadcast_to_all(self, sender_websocket: WebSocket, user_id: str, message: dict):
         connection_count = 0
-        for user_id, user_connections in self.active_connections.items():
-            for connection in user_connections:
+        if user_id in self.active_connections:
+            for connection in self.active_connections[user_id]:
                 try:
                     message_copy = message.copy()
                     message_copy["was_requested"] = (connection == sender_websocket)
@@ -38,10 +40,10 @@ class ConnectionManager:
                 except Exception as e:
                     print(f"Error sending message to user {user_id}:", e)
 
-    async def broadcast_to_all_except_sender(self, sender_websocket: WebSocket, message: dict):
+    async def broadcast_to_all_except_sender(self, sender_websocket: WebSocket, user_id: str, message: dict):
         connection_count = 0
-        for user_id, user_connections in self.active_connections.items():
-            for connection in user_connections:
+        if user_id in self.active_connections:
+            for connection in self.active_connections[user_id]:
                 if connection != sender_websocket: 
                     try:
                         await connection.send_json(message)
