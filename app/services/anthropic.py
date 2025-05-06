@@ -2,19 +2,14 @@ import anthropic
 from app.config import settings
 from app.services.connection import manager
 from datetime import datetime
+from app.services.prompts import get_instructions
 
 async_client = anthropic.AsyncAnthropic(
     api_key=settings.ANTHROPIC_API_KEY,
 )
 
 async def generate_note_stream(template, transcript, additional_context, websocket, user_id, visit_id, instructions="Generate note"):
-    message = f"""
-    Template: {template}
-    Transcript: {transcript}
-    Additional Context: {additional_context}
-    Instructions: {instructions}
-    """
-
+    message = get_instructions(transcript, additional_context, template)
     note = await stream_claude_async_note(message, websocket, user_id, visit_id)
     note_generated_at = str(datetime.utcnow())
     await manager.broadcast_to_all(websocket, user_id, {
