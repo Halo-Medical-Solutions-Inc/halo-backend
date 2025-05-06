@@ -14,14 +14,7 @@ async def generate_note_stream(template, transcript, additional_context, websock
     Additional Context: {additional_context}
     Instructions: {instructions}
     """
-    await manager.broadcast_to_all(websocket, user_id, {
-        "type": "note_generating",
-        "data": {
-            "visit_id": visit_id,
-            "status": "GENERATING_NOTE",
-            "note": "asldkfkalsd",
-        }
-    })
+
     note = await stream_claude_async_note(message, websocket, user_id, visit_id)
     note_generated_at = str(datetime.utcnow())
     await manager.broadcast_to_all(websocket, user_id, {
@@ -62,3 +55,11 @@ async def stream_claude_async_note(message, websocket, user_id, visit_id, model=
             })
     
     return full_text
+
+async def ask_claude(message):
+    response = await async_client.messages.create(
+        model="claude-3-5-sonnet-latest",
+        max_tokens=8192,
+        messages=[{"role": "user", "content": message}],
+    )
+    return response.content[0].text

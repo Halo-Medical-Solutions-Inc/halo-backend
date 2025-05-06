@@ -5,7 +5,7 @@ from datetime import datetime
 from app.services.deepgram import DeepgramClient
 from app.services.connection import manager
 from app.models.requests import TranscribeAudioRequest
-from app.services.anthropic import generate_note_stream
+from app.services.anthropic import generate_note_stream, ask_claude
 
 router = APIRouter()
 db = database()
@@ -94,6 +94,10 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
 
     try:
         await deepgram.close_connection()
+        name = visit["name"]
+        if name == "New Visit" or name == "":
+            name = await ask_claude(f"What is the patient's name? The visit transcript and additional context is: {visit['transcript']} {visit['additional_context']} Just return the name, nothing else, no comments, no nothing.")
+            visit = db.update_visit(visit["visit_id"], name=name)
         await manager.broadcast_to_all(websocket, user_id, {
             "type": "finish_recording",
             "data": {
@@ -102,9 +106,10 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
                 "recording_finished_at": visit["recording_finished_at"],
                 "recording_duration": visit["recording_duration"],
                 "transcript": visit["transcript"],
+                "name": name
             }
         })
-        
+
         note, note_generated_at = await generate_note_stream(
             template=db.get_template(visit["template_id"])['instructions'], 
             transcript=visit["transcript"], 
@@ -113,6 +118,7 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
             user_id=user_id,
             visit_id=visit["visit_id"]
         )
+
         visit = db.update_visit(visit["visit_id"], note=note, status="FINISHED", template_modified_at=note_generated_at)
     except Exception as e:
         print(e)
