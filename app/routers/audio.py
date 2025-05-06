@@ -98,6 +98,7 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
         if name == "New Visit" or name == "":
             name = await ask_claude(f"What is the patient's name? The visit transcript and additional context is: {visit['transcript']} {visit['additional_context']} Just return the name, nothing else, no comments, no nothing.")
             visit = db.update_visit(visit["visit_id"], name=name)
+        visit = db.update_visit(visit["visit_id"], template_modified_at=datetime.utcnow())
         await manager.broadcast_to_all(websocket, user_id, {
             "type": "finish_recording",
             "data": {
@@ -106,7 +107,8 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
                 "recording_finished_at": visit["recording_finished_at"],
                 "recording_duration": visit["recording_duration"],
                 "transcript": visit["transcript"],
-                "name": name
+                "name": name,
+                "template_modified_at": visit["template_modified_at"]
             }
         })
 
