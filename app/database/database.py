@@ -150,10 +150,17 @@ class database:
         template['name'] = decrypt(template['encrypt_name'])
         template['instructions'] = decrypt(template['encrypt_instructions'])
         template['print'] = decrypt(template['encrypt_print'])
+        if 'encrypt_header' in template:
+            template['header'] = decrypt(template['encrypt_header'])
+        if 'encrypt_footer' in template:
+            template['footer'] = decrypt(template['encrypt_footer'])
         del template['_id']
         del template['encrypt_name']
         del template['encrypt_instructions']
-        del template['encrypt_print']
+        if 'encrypt_header' in template:
+            del template['encrypt_header']
+        if 'encrypt_footer' in template:
+            del template['encrypt_footer']
         return template
     
     def create_template(self, user_id):
@@ -166,6 +173,8 @@ class database:
             'encrypt_name': encrypt('New Template'),
             'encrypt_instructions': encrypt(''),
             'encrypt_print': encrypt(''),
+            'encrypt_header': encrypt(''),
+            'encrypt_footer': encrypt(''),
         }
         self.templates.insert_one(template)
         user['template_ids'].append(template['_id'])
@@ -173,7 +182,7 @@ class database:
 
         return self.decrypt_template(template)
 
-    def update_template(self, template_id, name=None, instructions=None, print=None):
+    def update_template(self, template_id, name=None, instructions=None, print=None, header=None, footer=None):
         update_fields = {}
         if name is not None:
             update_fields['encrypt_name'] = encrypt(name)
@@ -181,7 +190,10 @@ class database:
             update_fields['encrypt_instructions'] = encrypt(instructions)
         if print is not None:
             update_fields['encrypt_print'] = encrypt(print)  
-        
+        if header is not None:
+            update_fields['encrypt_header'] = encrypt(header)
+        if footer is not None:
+            update_fields['encrypt_footer'] = encrypt(footer)
         if update_fields:
             update_fields['modified_at'] = datetime.utcnow()
             self.templates.update_one({'_id': ObjectId(template_id)}, {'$set': update_fields})
