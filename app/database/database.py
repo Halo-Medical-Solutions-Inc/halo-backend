@@ -194,13 +194,15 @@ class database:
             update_fields['encrypt_header'] = encrypt(header)
         if footer is not None:
             update_fields['encrypt_footer'] = encrypt(footer)
-        if update_fields:
+        
+        if instructions is not None:
             update_fields['modified_at'] = datetime.utcnow()
+            
+        if update_fields:
             self.templates.update_one({'_id': ObjectId(template_id)}, {'$set': update_fields})
         template = self.templates.find_one({'_id': ObjectId(template_id)})
         
         return self.decrypt_template(template)
-    
     def delete_template(self, template_id, user_id):
         user = self.get_user(user_id)
         user['template_ids'].remove(template_id)
