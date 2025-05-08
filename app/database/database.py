@@ -304,3 +304,36 @@ class database:
     def get_visit(self, visit_id):
         visit = self.visits.find_one({'_id': ObjectId(visit_id)})
         return self.decrypt_visit(visit)
+
+    def create_default_template(self, name,  instructions, print='', header='', footer=''):
+        template = {
+            'user_id': 'HALO',
+            'created_at': datetime.utcnow(),
+            'modified_at': datetime.utcnow(),
+            'status': 'DEFAULT',
+            'encrypt_name': encrypt(name),
+            'encrypt_instructions': encrypt(instructions),
+            'encrypt_print': encrypt(print),
+            'encrypt_header': encrypt(header),
+            'encrypt_footer': encrypt(footer),
+        }
+        self.templates.insert_one(template)
+
+        users = self.users.find({})
+        for user in users:
+            user['template_ids'].append(template['_id'])
+            self.users.update_one({'_id': ObjectId(user['_id'])}, {'$set': {'template_ids': user['template_ids']}})
+        return self.decrypt_template(template)
+    
+    def get_default_template(self, template_id):
+        template = self.templates.find_one({'_id': ObjectId(template_id)})
+        return self.decrypt_template(template)
+        
+    def delete_default_template(self, template_id):
+        self.templates.delete_one({'_id': ObjectId(template_id)})
+        users = self.users.find({})
+        for user in users:
+            if template_id in user['template_ids']:
+                user['template_ids'].remove(template_id)
+                self.users.update_one({'_id': ObjectId(user['_id'])}, {'$set': {'template_ids': user['template_ids']}})
+        return True

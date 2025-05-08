@@ -28,6 +28,18 @@ class TranscribeAudioRequest(BaseModel):
     visit_id: str
     audio_buffer: bytes = File(...)
 
+class CreateDefaultTemplateRequest(BaseModel):
+    name: str
+    instructions: str
+
+class GetDefaultTemplateRequest(BaseModel):
+    template_id: str
+
+class DeleteDefaultTemplateRequest(BaseModel):
+    template_id: str
+
+
+
 class WebSocketMessage(BaseModel):
     type: Literal["create_template", "update_template", "delete_template", "duplicate_template", "polish_template",
                  "create_visit", "update_visit", "delete_visit", "note_generated", "regenerate_note",
