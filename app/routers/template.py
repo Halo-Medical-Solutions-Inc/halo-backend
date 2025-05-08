@@ -22,7 +22,8 @@ async def handle_update_template(websocket: WebSocket, user_id: str, data: dict)
         broadcast_data["modified_at"] = template.get("modified_at")
         await manager.broadcast_to_all_except_sender(websocket, user_id, {
             "type": "update_template",
-            "data": broadcast_data
+            "data": broadcast_data,
+            "modified_at": template.get("modified_at")
         })
         await manager.broadcast_to_user(websocket, user_id, {
             "type": "update_template",
