@@ -14,7 +14,7 @@ async def handle_create_template(websocket: WebSocket, user_id: str, data: dict)
 async def handle_update_template(websocket: WebSocket, user_id: str, data: dict):
     if "template_id" in data:
         valid_fields = [    
-            "name", "instructions"
+            "name", "instructions", "header", "footer"
         ]
         update_fields = {k: v for k, v in data.items() if k in valid_fields}
         template = db.update_template(template_id=data["template_id"], **update_fields)
@@ -22,7 +22,8 @@ async def handle_update_template(websocket: WebSocket, user_id: str, data: dict)
         broadcast_data["modified_at"] = template.get("modified_at")
         await manager.broadcast_to_all_except_sender(websocket, user_id, {
             "type": "update_template",
-            "data": broadcast_data
+            "data": broadcast_data,
+            "modified_at": template.get("modified_at")
         })
         await manager.broadcast_to_user(websocket, user_id, {
             "type": "update_template",

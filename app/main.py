@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import user, audio
+from app.routers import user, audio, admin  
 
 
 app = FastAPI(
@@ -23,3 +23,4 @@ async def root():
 
 app.include_router(user.router, prefix="/user", tags=["User Operations"])
 app.include_router(audio.router, prefix="/audio", tags=["Audio Operations"])
+app.include_router(admin.router, prefix="/admin", tags=["Admin Operations"])
