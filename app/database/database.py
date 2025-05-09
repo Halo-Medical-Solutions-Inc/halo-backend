@@ -64,6 +64,10 @@ class database:
             if 'encrypt_email' in user and decrypt(user['encrypt_email']) == email:
                 return None
                 
+        default_templates = list(self.templates.find({'status': 'DEFAULT'}))
+        default_template_ids = [template['_id'] for template in default_templates]
+        default_template_id = str(default_templates[0]['_id']) if default_templates else ''
+                
         user = {
             'created_at': datetime.utcnow(),
             'modified_at': datetime.utcnow(),
@@ -72,9 +76,9 @@ class database:
             'encrypt_email': encrypt(email),
             'hash_password': hash_password(password),
             'user_specialty': '',
-            'default_template_id': '',
+            'default_template_id': default_template_id,
             'default_language': 'en',
-            'template_ids': [],
+            'template_ids': default_template_ids,
             'visit_ids': [],
         }
         self.users.insert_one(user)
