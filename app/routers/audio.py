@@ -96,7 +96,7 @@ async def handle_finish_recording(websocket: WebSocket, user_id: str, data: dict
         await deepgram.close_connection()
         name = visit["name"]
         if name == "New Visit" or name == "":
-            name = await ask_claude(f"What is the patient's name? The visit transcript and additional context is: {visit['transcript']} {visit['additional_context']} Just return the name, nothing else, no comments, no nothing.")
+            name = await ask_claude(f"What is the patient's name? The visit transcript and additional context is: {visit['transcript']} {visit['additional_context']} Just return the name, nothing else, no comments, no nothing. If there is no name, return 'New Visit'.")
             visit = db.update_visit(visit["visit_id"], name=name)
         visit = db.update_visit(visit["visit_id"], template_modified_at=datetime.utcnow())
         await manager.broadcast_to_all(websocket, user_id, {

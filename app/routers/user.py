@@ -106,7 +106,14 @@ async def run_in_threadpool(func, *args, **kwargs):
         lambda: func(*args, **kwargs)
     )
 
-async def process_message_async(websocket, user_id, message_type, data, deepgram=None):
+async def safe_broadcast_to_user(websocket, user_id, message):
+    """Safely broadcast to a user, ignoring errors if the connection is closed."""
+    try:
+        await manager.broadcast_to_user(websocket, user_id, message)
+    except Exception as e:
+        print(f"Could not broadcast to user {user_id}: {e}")
+
+async def process_message_async(websocket, user_id, message_type, data, deepgram=None, connection_active=True):
     """Process a message asynchronously without blocking the main WebSocket loop."""
     try:
         if message_type == "create_template":
@@ -140,10 +147,11 @@ async def process_message_async(websocket, user_id, message_type, data, deepgram
 
     except Exception as e:
         print(f"Error processing message {message_type}: {e}")
-        await manager.broadcast_to_user(websocket, user_id, {
-            "type": "error",
-            "data": {"message": f"Error processing {message_type}: {str(e)}"}
-        })
+        if connection_active:
+            await safe_broadcast_to_user(websocket, user_id, {
+                "type": "error",
+                "data": {"message": f"Error processing {message_type}: {str(e)}"}
+            })
 
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -153,6 +161,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         return
 
     transcriber = None
+    connection_active = True
+    active_tasks = set()
 
     await manager.connect(websocket, user_id)
 
@@ -166,7 +176,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         while True:
             try:
                 message_type, data = await message_queue.get()
-                asyncio.create_task(process_message_async(websocket, user_id, message_type, data, deepgram))
+                task = asyncio.create_task(
+                    process_message_async(websocket, user_id, message_type, data, deepgram, connection_active)
+                )
+                active_tasks.add(task)
+                task.add_done_callback(lambda t: active_tasks.discard(t))
                 message_queue.task_done()
             except Exception as e:
                 print(f"Error in queue processor: {e}")
@@ -179,7 +193,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             message = WebSocketMessage(**data)
 
             if db.is_session_valid(message.session_id) is None:
-                await manager.broadcast_to_user(websocket, user_id, {
+                await safe_broadcast_to_user(websocket, user_id, {
                     "type": "error",
                     "data": {"message": "Invalid session"}
                 })
@@ -187,12 +201,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 return
             
             if message.type in ["audio_chunk"]:
-                await process_message_async(websocket, user_id, message.type, message.data, deepgram)
+                task = asyncio.create_task(
+                    process_message_async(websocket, user_id, message.type, message.data, deepgram, connection_active)
+                )
+                active_tasks.add(task)
+                task.add_done_callback(lambda t: active_tasks.discard(t))
             else:
                 await message_queue.put((message.type, message.data))
 
     except WebSocketDisconnect:
         print("Client disconnected")
+        connection_active = False
         
         if deepgram.current_recording_visit_id:
             visit = db.get_visit(deepgram.current_recording_visit_id)
@@ -205,10 +224,19 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "status": "PAUSED"
                 }
             })
+        
         deepgram.close_connection()
         manager.disconnect(websocket, user_id)
+        
+        # Let the message queue continue processing pending messages
+        print(f"Continuing with {message_queue.qsize()} queued tasks and {len(active_tasks)} active tasks")
+        
+        # DO NOT cancel queue_processor - let it run to complete pending tasks
+        
     except Exception as e:
-        print('ERROR', e)            
+        print('ERROR', e)
+        connection_active = False
+                
         if deepgram.current_recording_visit_id:
             visit = db.get_visit(deepgram.current_recording_visit_id)
             if visit and visit["status"] == "RECORDING":
@@ -221,5 +249,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     }
                 })
         deepgram.close_connection()
+        manager.disconnect(websocket, user_id)
         await websocket.close(code=1011, reason=str(e))
 
