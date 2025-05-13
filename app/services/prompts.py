@@ -2,6 +2,9 @@ def get_instructions(transcript, additional_context, instructions, user_specialt
     INSTRUCTIONS = f"""
     You are an AI medical scribe tasked with generating or modifying a concise and accurate clinical note. Your responsibility is to use the provided information to create or update a clinical note according to specific rules and user commands. Follow these instructions carefully:
 
+    Preliminary information:
+    Today's date: {datetime.utcnow().strftime("%Y-%m-%d")}
+
     1. Review the following information:
 
     <transcript>
