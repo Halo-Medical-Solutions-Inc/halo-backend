@@ -8,8 +8,8 @@ async_client = anthropic.AsyncAnthropic(
     api_key=settings.ANTHROPIC_API_KEY,
 )
 
-async def generate_note_stream(template, transcript, additional_context, websocket, user_id, visit_id):
-    message = get_instructions(transcript, additional_context, template)
+async def generate_note_stream(template, transcript, additional_context, user_specialty, websocket, user_id, visit_id):
+    message = get_instructions(transcript, additional_context, template, user_specialty)
     note = await stream_claude_async_note(message, websocket, user_id, visit_id)
     note_generated_at = str(datetime.utcnow())
     await manager.broadcast_to_all(websocket, user_id, {

@@ -46,12 +46,14 @@ async def handle_delete_visit(websocket: WebSocket, user_id: str, data: dict):
 async def handle_regenerate_note(websocket: WebSocket, user_id: str, data: dict):
     if "visit_id" in data:
         visit = db.get_visit(data["visit_id"])
+        user = db.get_user(user_id)
         if visit:
             visit = db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
             note, note_generated_at = await generate_note_stream(
                 template=db.get_template(data["template_id"])['instructions'], 
                 transcript=visit["transcript"], 
                 additional_context=visit["additional_context"],
+                user_specialty=user["user_specialty"],
                 websocket=websocket,
                 user_id=user_id,
                 visit_id=visit["visit_id"]

@@ -1,4 +1,4 @@
-def get_instructions(transcript, additional_context, instructions):
+def get_instructions(transcript, additional_context, instructions, user_specialty):
     INSTRUCTIONS = f"""
     You are an AI medical scribe tasked with generating or modifying a concise and accurate clinical note. Your responsibility is to use the provided information to create or update a clinical note according to specific rules and user commands. Follow these instructions carefully:
 
@@ -15,6 +15,10 @@ def get_instructions(transcript, additional_context, instructions):
     <template_instructions>
     {instructions}
     </template_instructions>
+
+    <user_specialty>
+    {user_specialty}
+    </user_specialty>
 
     <last_note>
     None provided.
