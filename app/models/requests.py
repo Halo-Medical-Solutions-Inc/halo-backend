@@ -23,6 +23,11 @@ class GetVisitsRequest(BaseModel):
 class DeleteAllVisitsForUserRequest(BaseModel):
     user_id: str
 
+class GetUserStatsRequest(BaseModel):
+    user_emails: list[str] = None
+    start_date: str = None
+    end_date: str = None
+
 class TranscribeAudioRequest(BaseModel):
     session_id: str
     visit_id: str

@@ -80,10 +80,13 @@ class database:
             'default_language': 'en',
             'template_ids': default_template_ids,
             'visit_ids': [],
+            'daily_statistics': {
+            }
         }
         self.users.insert_one(user)
 
         return self.decrypt_user(user)
+        
     
     def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
         update_fields = {}
@@ -118,6 +121,13 @@ class database:
     def get_user(self, user_id):
         user = self.users.find_one({'_id': ObjectId(user_id)})
         return self.decrypt_user(user)
+    
+    def get_user_by_email(self, email):
+        users = self.users.find({})
+        for user in users:
+            if 'encrypt_email' in user and decrypt(user['encrypt_email']) == email:
+                return self.decrypt_user(user)
+        return None
     
     def verify_user(self, email, password):
         users = self.users.find({})
@@ -263,6 +273,8 @@ class database:
 
         user['visit_ids'].append(visit['_id'])
         self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'visit_ids': user['visit_ids']}})
+        
+        self.update_daily_statistic(user_id, 'visits', 1)
 
         return self.decrypt_visit(visit)
     
@@ -283,6 +295,10 @@ class database:
         if recording_started_at is not None:
             update_fields['recording_started_at'] = recording_started_at
         if recording_duration is not None:
+            current_visit = self.visits.find_one({'_id': ObjectId(visit_id)})
+            duration_increment = max(0, float(recording_duration or 0) - float(current_visit.get('recording_duration', 0) or 0))
+            if duration_increment > 0:
+                self.update_daily_statistic(str(current_visit['user_id']), 'audio_time', duration_increment)
             update_fields['recording_duration'] = recording_duration
         if recording_finished_at is not None:
             update_fields['recording_finished_at'] = recording_finished_at
@@ -295,7 +311,7 @@ class database:
             update_fields['modified_at'] = datetime.utcnow()
             self.visits.update_one({'_id': ObjectId(visit_id)}, {'$set': update_fields})
         visit = self.visits.find_one({'_id': ObjectId(visit_id)})
-
+        
         return self.decrypt_visit(visit)
 
     def delete_visit(self, visit_id, user_id):
@@ -341,3 +357,33 @@ class database:
                 user['template_ids'].remove(template_id)
                 self.users.update_one({'_id': ObjectId(user['_id'])}, {'$set': {'template_ids': user['template_ids']}})
         return True
+
+    def update_daily_statistic(self, user_id, stat_type, value):
+        user = self.users.find_one({'_id': ObjectId(user_id)})
+        if not user:
+            return
+            
+        today = datetime.utcnow().strftime('%Y-%m-%d')
+        daily_statistics = user.get('daily_statistics', {})
+        
+        if today not in daily_statistics:
+            daily_statistics[today] = {
+                'visits': 0,
+                'audio_time': 0
+            }
+            
+        if stat_type == 'visits':
+            daily_statistics[today]['visits'] += 1
+        elif stat_type == 'audio_time':
+            if isinstance(value, str):
+                try:
+                    value = float(value)
+                except ValueError:
+                    value = 0
+            
+            daily_statistics[today]['audio_time'] += value
+            
+        self.users.update_one(
+            {'_id': ObjectId(user_id)},
+            {'$set': {'daily_statistics': daily_statistics}}
+        )
