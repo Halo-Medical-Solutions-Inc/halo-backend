@@ -1,5 +1,6 @@
 from app.models.requests import (
-    SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, DeleteAllVisitsForUserRequest
+    SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, DeleteAllVisitsForUserRequest,
+    GetUserStatsRequest
 )
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from app.database.database import database
@@ -16,10 +17,11 @@ import asyncio
 import threading
 import concurrent.futures
 import functools
+from datetime import datetime
 
 router = APIRouter()
 db = database()
-# Thread pool for handling websocket messages
+
 thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 
 @router.post("/signin")
@@ -76,6 +78,62 @@ def delete_all_visits_for_user(request: DeleteAllVisitsForUserRequest):
         return {"message": "All visits deleted"}
     else:
         raise HTTPException(status_code=401, detail="Invalid user")
+
+
+@router.post("/get_user_stats")
+def get_user_stats(request: GetUserStatsRequest):
+    if not request.user_emails or "all" in request.user_emails:
+        all_users = list(db.users.find({}))
+        user_ids = [str(user["_id"]) for user in all_users]
+    else:
+        user_ids = []
+        for email in request.user_emails:
+            user = db.get_user_by_email(email)
+            if user:
+                user_ids.append(user['user_id'])
+    
+    end_date = request.end_date or datetime.utcnow().strftime('%Y-%m-%d')
+    start_date = request.start_date or "1970-01-01"
+    
+    total_visits = 0
+    total_audio_time = 0
+    user_breakdowns = {}
+    
+    for user_id in user_ids:
+        try:
+            user = db.get_user(user_id)
+            if not user or 'daily_statistics' not in user:
+                continue
+                
+            user_visits = 0
+            user_audio_time = 0
+            filtered_stats = {}
+            
+            for date, stats in user['daily_statistics'].items():
+                if start_date <= date <= end_date:
+                    filtered_stats[date] = stats
+                    user_visits += stats.get('visits', 0)
+                    user_audio_time += stats.get('audio_time', 0)
+            
+            total_visits += user_visits
+            total_audio_time += user_audio_time
+            
+            user_breakdowns[user_id] = {
+                'name': user['name'],
+                'email': user['email'],
+                'total_visits': user_visits,
+                'total_audio_time': user_audio_time,
+            }
+        except Exception as e:
+            continue
+    
+    result = {
+        'total_visits': total_visits,
+        'total_audio_time': total_audio_time,
+        'users': user_breakdowns
+    }
+    
+    return result
     
 async def handle_update_user(websocket: WebSocket, user_id: str, data: dict):
     if "user_id" in data:

@@ -23,6 +23,11 @@ class GetVisitsRequest(BaseModel):
 class DeleteAllVisitsForUserRequest(BaseModel):
     user_id: str
 
+class GetUserStatsRequest(BaseModel):
+    user_emails: list[str] = None
+    start_date: str = None
+    end_date: str = None
+
 class TranscribeAudioRequest(BaseModel):
     session_id: str
     visit_id: str
@@ -37,8 +42,6 @@ class GetDefaultTemplateRequest(BaseModel):
 
 class DeleteDefaultTemplateRequest(BaseModel):
     template_id: str
-
-
 
 class WebSocketMessage(BaseModel):
     type: Literal["create_template", "update_template", "delete_template", "duplicate_template", "polish_template",
