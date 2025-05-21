@@ -44,21 +44,21 @@ class DeleteDefaultTemplateRequest(BaseModel):
     template_id: str
 
 class WebSocketMessage(BaseModel):
-    type: Literal["create_template", "update_template", "delete_template", "duplicate_template", "polish_template",
-                 "create_visit", "update_visit", "delete_visit", "note_generated", "regenerate_note",
-                 "update_user", 
-                 "start_recording", "pause_recording", "resume_recording", "finish_recording", 
-                 "audio_chunk", "transcribe_audio", 
-                 "error"]
+    type: Literal[
+        "create_template", "update_template", "delete_template", "duplicate_template", "polish_template",
+        "create_visit", "update_visit", "delete_visit", "note_generated", "regenerate_note",
+        "update_user", "start_recording", "pause_recording", "resume_recording", "finish_recording",
+        "audio_chunk", "transcribe_audio", "error"
+    ]
     session_id: str
     data: dict
 
 class WebSocketResponse(BaseModel):
-    type: Literal["create_template", "update_template", "delete_template", "duplicate_template", "polish_template",
-                 "create_visit", "update_visit", "delete_visit", "note_generated", "regenerate_note",
-                 "update_user", 
-                 "start_recording", "pause_recording", "resume_recording", "finish_recording", 
-                 "audio_chunk", "transcribe_audio", 
-                 "error"]
+    type: Literal[
+        "create_template", "update_template", "delete_template", "duplicate_template", "polish_template",
+        "create_visit", "update_visit", "delete_visit", "note_generated", "regenerate_note",
+        "update_user", "start_recording", "pause_recording", "resume_recording", "finish_recording",
+        "audio_chunk", "transcribe_audio", "error"
+    ]
     data: dict 
     was_requested: bool

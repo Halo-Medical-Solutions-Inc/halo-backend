@@ -2,7 +2,7 @@ from fastapi import WebSocket
 from app.database.database import database
 from app.services.connection import manager
 from app.services.anthropic import generate_note_stream
-from datetime import datetime
+
 db = database()
 
 async def handle_create_visit(websocket: WebSocket, user_id: str, data: dict):

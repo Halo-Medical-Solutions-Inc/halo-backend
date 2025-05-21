@@ -25,15 +25,6 @@ class database:
             session['expiration_date'] = str(session['expiration_date'])
             del session['_id']
         return session
-
-    def get_session(self, session_id):
-        session = self.sessions.find_one({'_id': ObjectId(session_id)})
-        if session:
-            session['session_id'] = str(session['_id'])
-            session['user_id'] = str(session['user_id'])
-            session['expiration_date'] = str(session['expiration_date'])
-            del session['_id']
-        return session
     
     def is_session_valid(self, session_id):
         session = self.get_session(session_id)
@@ -44,6 +35,15 @@ class database:
 
     def delete_session(self, session_id):
         self.sessions.delete_one({'_id': ObjectId(session_id)})
+
+    def get_session(self, session_id):
+        session = self.sessions.find_one({'_id': ObjectId(session_id)})
+        if session:
+            session['session_id'] = str(session['_id'])
+            session['user_id'] = str(session['user_id'])
+            session['expiration_date'] = str(session['expiration_date'])
+            del session['_id']
+        return session
 
     def decrypt_user(self, user):
         user['user_id'] = str(user['_id'])
