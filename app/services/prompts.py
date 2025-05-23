@@ -1,5 +1,29 @@
 from datetime import datetime
-def get_instructions(transcript, additional_context, instructions, user_specialty):
+
+"""
+Prompts Service for the Halo Application.
+
+This module provides a service for generating prompts for the AI medical scribe.
+It includes functionality for generating prompts for the AI medical scribe to follow when generating or modifying a clinical note.
+"""
+
+def get_instructions(transcript, additional_context, template_instructions, user_specialty):
+    """
+    Generate instructions for the AI medical scribe.
+
+    This function constructs a prompt for the AI medical scribe to follow when generating or modifying a clinical note.
+    It includes the necessary information and instructions for the scribe to create or update a clinical note accurately.
+
+    Args:
+        transcript (str): The transcript of the audio recording.
+        additional_context (str): Additional context or information about the patient.
+        template_instructions (str): Instructions for the AI medical scribe.
+        user_specialty (str): The specialty of the user.
+
+    Returns:
+        str: The prompt for the AI medical scribe.
+    """
+
     INSTRUCTIONS = f"""
     You are an AI medical scribe tasked with generating or modifying a concise and accurate clinical note. Your responsibility is to use the provided information to create or update a clinical note according to specific rules and user commands. Follow these instructions carefully:
 
@@ -17,7 +41,7 @@ def get_instructions(transcript, additional_context, instructions, user_specialt
     </additional_context>
 
     <template_instructions>
-    {instructions}
+    {template_instructions}
     </template_instructions>
 
     <user_specialty>
