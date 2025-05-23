@@ -1,31 +1,42 @@
-from app.models.requests import (
-    SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, DeleteAllVisitsForUserRequest,
-    GetUserStatsRequest
-)
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from app.database.database import database
-from app.services.connection import manager
+from app.models.requests import SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, WebSocketMessage
+from fastapi import APIRouter, HTTPException
 from fastapi.websockets import WebSocket, WebSocketDisconnect
-from app.models.requests import WebSocketMessage
-from app.routers.template import handle_create_template, handle_update_template, handle_delete_template, handle_duplicate_template
-from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit
-from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording, handle_audio_chunk
-from app.services.deepgram import DeepgramTranscriber
-from app.routers.visit import handle_regenerate_note
-
+from app.database.database import db
+from app.services.connection import manager
+from app.routers.template import handle_create_template, handle_update_template, handle_delete_template, handle_duplicate_template, handle_polish_template
+from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit, handle_generate_note
+from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording
+from app.services.logging import logger
 import asyncio
-import threading
-import concurrent.futures
-import functools
-from datetime import datetime
+import uuid
+import time
+
+"""
+User Router for managing user operations.
+This router is responsible for user authentication, profile management,
+and WebSocket connections. It handles user sign-in, sign-up, profile updates,
+and coordinates with other routers for template and visit operations.
+"""
 
 router = APIRouter()
-db = database()
-
-thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 
 @router.post("/signin")
 def signin(request: SignInRequest):
+    """
+    Authenticate a user with email and password.
+    
+    Args:
+        request (SignInRequest): Request containing email and password.
+        
+    Returns:
+        dict: Session information for the authenticated user.
+        
+    Raises:
+        HTTPException: If authentication fails with 401 status code.
+        
+    Note:
+        Creates a new session for the user upon successful authentication.
+    """
     user = db.verify_user(request.email, request.password)
     if user:
         session = db.create_session(user['user_id'])
@@ -35,6 +46,21 @@ def signin(request: SignInRequest):
 
 @router.post("/signup")
 def signup(request: SignUpRequest):
+    """
+    Register a new user.
+    
+    Args:
+        request (SignUpRequest): Request containing user registration details.
+        
+    Returns:
+        dict: Session information for the newly created user.
+        
+    Raises:
+        HTTPException: If user creation fails with 400 status code.
+        
+    Note:
+        Creates a new session for the user upon successful registration.
+    """
     user = db.create_user(request.name, request.email, request.password)
     if user:
         session = db.create_session(user['user_id'])
@@ -44,6 +70,21 @@ def signup(request: SignUpRequest):
 
 @router.post("/get")
 def get_user(request: GetUserRequest):
+    """
+    Retrieve user information.
+    
+    Args:
+        request (GetUserRequest): Request containing session ID.
+        
+    Returns:
+        dict: User information.
+        
+    Raises:
+        HTTPException: If session is invalid with 401 status code.
+        
+    Note:
+        Validates the session before retrieving user information.
+    """
     user_id = db.is_session_valid(request.session_id)
     if user_id:
         user = db.get_user(user_id)
@@ -53,6 +94,21 @@ def get_user(request: GetUserRequest):
 
 @router.post("/get_templates")
 def get_templates(request: GetTemplatesRequest):
+    """
+    Retrieve templates for a user.
+    
+    Args:
+        request (GetTemplatesRequest): Request containing session ID.
+        
+    Returns:
+        list: List of templates associated with the user.
+        
+    Raises:
+        HTTPException: If session is invalid with 401 status code.
+        
+    Note:
+        Validates the session before retrieving template information.
+    """
     user_id = db.is_session_valid(request.session_id)
     if user_id:
         templates = db.get_user_templates(user_id)
@@ -62,222 +118,137 @@ def get_templates(request: GetTemplatesRequest):
 
 @router.post("/get_visits")
 def get_visits(request: GetVisitsRequest):
+    """
+    Retrieve visits for a user.
+    
+    Args:
+        request (GetVisitsRequest): Request containing session ID.
+        
+    Returns:
+        list: List of visits associated with the user.
+        
+    Raises:
+        HTTPException: If session is invalid with 401 status code.
+        
+    Note:
+        Validates the session before retrieving visit information.
+    """
     user_id = db.is_session_valid(request.session_id)
     if user_id:
         visits = db.get_user_visits(user_id)
         return visits
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
-    
-@router.post("/delete_all_visits_for_user")
-def delete_all_visits_for_user(request: DeleteAllVisitsForUserRequest):
-    user = db.get_user(request.user_id)
-    if user:
-        for visit_id in user['visit_ids']:
-            db.delete_visit(visit_id, request.user_id)
-        return {"message": "All visits deleted"}
-    else:
-        raise HTTPException(status_code=401, detail="Invalid user")
 
-
-@router.post("/get_user_stats")
-def get_user_stats(request: GetUserStatsRequest):
-    if not request.user_emails or "all" in request.user_emails:
-        all_users = list(db.users.find({}))
-        user_ids = [str(user["_id"]) for user in all_users]
-    else:
-        user_ids = []
-        for email in request.user_emails:
-            user = db.get_user_by_email(email)
-            if user:
-                user_ids.append(user['user_id'])
     
-    end_date = request.end_date or datetime.utcnow().strftime('%Y-%m-%d')
-    start_date = request.start_date or "1970-01-01"
+async def handle_update_user(websocket_session_id: str, user_id: str, data: dict):
+    """
+    Update a user's profile information and broadcast the update event.
     
-    total_visits = 0
-    total_audio_time = 0
-    user_breakdowns = {}
-    
-    for user_id in user_ids:
-        try:
-            user = db.get_user(user_id)
-            if not user or 'daily_statistics' not in user:
-                continue
-                
-            user_visits = 0
-            user_audio_time = 0
-            filtered_stats = {}
-            
-            for date, stats in user['daily_statistics'].items():
-                if start_date <= date <= end_date:
-                    filtered_stats[date] = stats
-                    user_visits += stats.get('visits', 0)
-                    user_audio_time += stats.get('audio_time', 0)
-            
-            total_visits += user_visits
-            total_audio_time += user_audio_time
-            
-            user_breakdowns[user_id] = {
-                'name': user['name'],
-                'email': user['email'],
-                'total_visits': user_visits,
-                'total_audio_time': user_audio_time,
-            }
-        except Exception as e:
-            continue
-    
-    result = {
-        'total_visits': total_visits,
-        'total_audio_time': total_audio_time,
-        'users': user_breakdowns
-    }
-    
-    return result
-    
-async def handle_update_user(websocket: WebSocket, user_id: str, data: dict):
-    if "user_id" in data:
-        valid_fields = [
-            "name", "user_specialty", "default_template_id", "default_language"
-        ]
+    Args:
+        websocket_session_id (str): The ID of the websocket session.
+        user_id (str): The ID of the user to update.
+        data (dict): The data containing fields to update, must include user_id.
+        
+    Raises:
+        HTTPException: If there's an error during user update.
+        
+    Note:
+        Only valid fields are extracted from the data for update.
+        Broadcasts only the updated fields to all connected clients.
+    """
+    try:
+        valid_fields = ["name", "user_specialty", "default_template_id", "default_language"]
         update_fields = {k: v for k, v in data.items() if k in valid_fields}
         user = db.update_user(user_id=data["user_id"], **update_fields)
-        broadcast_data = {"user_id": data["user_id"], **{k: user.get(k) for k in update_fields}}
-        broadcast_data["modified_at"] = user.get("modified_at")
-        await manager.broadcast_to_all_except_sender(websocket, user_id, {
-            "type": "update_user",
-            "data": broadcast_data
-        })
-        await manager.broadcast_to_user(websocket, user_id, {
+        broadcast_message = {
             "type": "update_user",
             "data": {
-                "user_id": data["user_id"],
-                "modified_at": user.get("modified_at")
+                "user_id": data["user_id"], 
+                "modified_at": user.get("modified_at"),
+                **{k: user.get(k) for k in update_fields}
             }
-        })
-
-async def run_in_threadpool(func, *args, **kwargs):
-    """Run a function in a thread pool and await its result."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        thread_pool,
-        lambda: func(*args, **kwargs)
-    )
-
-async def process_message_async(websocket, user_id, message_type, data, deepgram=None):
-    """Process a message asynchronously without blocking the main WebSocket loop."""
-    try:
-        if message_type == "create_template":
-            await handle_create_template(websocket, user_id, data)
-        elif message_type == "update_template":
-            await handle_update_template(websocket, user_id, data)
-        elif message_type == "delete_template":
-            await handle_delete_template(websocket, user_id, data)
-        elif message_type == "duplicate_template":
-            await handle_duplicate_template(websocket, user_id, data)
-        elif message_type == "create_visit":
-            await handle_create_visit(websocket, user_id, data)
-        elif message_type == "update_visit":
-            await handle_update_visit(websocket, user_id, data)
-        elif message_type == "delete_visit":
-            await handle_delete_visit(websocket, user_id, data)
-        elif message_type == "update_user":
-            await handle_update_user(websocket, user_id, data)
-        elif message_type == "start_recording" and deepgram:
-            await handle_start_recording(websocket, user_id, data, deepgram)
-        elif message_type == "pause_recording" and deepgram:
-            await handle_pause_recording(websocket, user_id, data, deepgram)
-        elif message_type == "resume_recording" and deepgram:
-            await handle_resume_recording(websocket, user_id, data, deepgram)
-        elif message_type == "finish_recording" and deepgram:
-            await handle_finish_recording(websocket, user_id, data, deepgram)
-        elif message_type == "audio_chunk" and deepgram:
-            await handle_audio_chunk(websocket, user_id, data, deepgram)
-        elif message_type == "regenerate_note":
-            await handle_regenerate_note(websocket, user_id, data)
-
+        }
+        await manager.broadcast(websocket_session_id, user_id, broadcast_message)
     except Exception as e:
-        print(f"Error processing message {message_type}: {e}")
-        await manager.broadcast_to_user(websocket, user_id, {
-            "type": "error",
-            "data": {"message": f"Error processing {message_type}: {str(e)}"}
-        })
+        logger.error(f"Error updating user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for real-time communication.
+    
+    Args:
+        websocket (WebSocket): The WebSocket connection.
+        session_id (str): The session ID for authentication.
+        
+    Note:
+        Validates the session before establishing the WebSocket connection.
+        Handles different message types and routes them to appropriate handlers.
+        Manages connection lifecycle including cleanup on disconnect.
+    """
     user_id = db.is_session_valid(session_id)
-    if not user_id:
-        await websocket.close()
-        return
+    if not user_id: await websocket.close(code=1008, reason="Invalid session")
 
-    transcriber = None
-
-    await manager.connect(websocket, user_id)
-
-    deepgram = DeepgramTranscriber(websocket)
-
-    print("Client connected")
-    
-    message_queue = asyncio.Queue()
-    
-    async def process_queue():
-        while True:
-            try:
-                message_type, data = await message_queue.get()
-                asyncio.create_task(process_message_async(websocket, user_id, message_type, data, deepgram))
-                message_queue.task_done()
-            except Exception as e:
-                print(f"Error in queue processor: {e}")
-    
-    queue_processor = asyncio.create_task(process_queue())
+    websocket_session_id = str(uuid.uuid4())
+    await manager.connect(websocket, websocket_session_id, user_id)
 
     try:
         while True:
-            data = await websocket.receive_json()
-            message = WebSocketMessage(**data)
-
-            if db.is_session_valid(message.session_id) is None:
-                await manager.broadcast_to_user(websocket, user_id, {
-                    "type": "error",
-                    "data": {"message": "Invalid session"}
-                })
-                await websocket.close()
-                return
-            
-            if message.type in ["audio_chunk"]:
-                await process_message_async(websocket, user_id, message.type, message.data, deepgram)
-            else:
-                await message_queue.put((message.type, message.data))
-
-    except WebSocketDisconnect:
-        print("Client disconnected")
+            message = WebSocketMessage(**await websocket.receive_json())
+            if db.is_session_valid(message.session_id) is None: await websocket.close(code=1008, reason="Invalid session")
+            asyncio.create_task(process_message(websocket_session_id, user_id, message))
         
-        if deepgram.current_recording_visit_id:
-            visit = db.get_visit(deepgram.current_recording_visit_id)
-            if visit and visit["status"] == "RECORDING":
-                db.update_visit(deepgram.current_recording_visit_id, status="PAUSED")
-            await manager.broadcast_to_all(websocket, user_id, {
-                "type": "pause_recording",
-                "data": {
-                    "visit_id": deepgram.current_recording_visit_id,
-                    "status": "PAUSED"
-                }
-            })
-        deepgram.close_connection()
-        manager.disconnect(websocket, user_id)
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket, websocket_session_id, user_id)
+
     except Exception as e:
-        print('ERROR', e)            
-        if deepgram.current_recording_visit_id:
-            visit = db.get_visit(deepgram.current_recording_visit_id)
-            if visit and visit["status"] == "RECORDING":
-                db.update_visit(deepgram.current_recording_visit_id, status="PAUSED")
-                await manager.broadcast_to_all(websocket, user_id, {
-                    "type": "pause_recording",
-                    "data": {
-                        "visit_id": deepgram.current_recording_visit_id,
-                        "status": "PAUSED"
-                    }
-                })
-        deepgram.close_connection()
+        logger.error(f"Error in websocket: {e}")
         await websocket.close(code=1011, reason=str(e))
 
+async def process_message(websocket_session_id: str, user_id: str, message: WebSocketMessage):
+    """
+    Process incoming WebSocket messages and route to appropriate handlers.
+    
+    Args:
+        websocket_session_id (str): The ID of the websocket session.
+        user_id (str): The ID of the user sending the message.
+        message (WebSocketMessage): The message to process.
+        
+    Note:
+        Routes different message types to their respective handlers.
+        Times the processing of each message type for performance monitoring.
+        Logs errors that occur during message processing.
+    """
+    try:
+        if message.type == 'update_user':
+            await handle_update_user(websocket_session_id, user_id, message.data)
+        elif message.type == 'create_template':
+            await handle_create_template(websocket_session_id, user_id, message.data)
+        elif message.type == 'update_template':
+            await handle_update_template(websocket_session_id, user_id, message.data)
+        elif message.type == 'delete_template':
+            await handle_delete_template(websocket_session_id, user_id, message.data)
+        elif message.type == 'duplicate_template':
+            await handle_duplicate_template(websocket_session_id, user_id, message.data)
+        elif message.type == 'polish_template':
+            await handle_polish_template(websocket_session_id, user_id, message.data)
+        elif message.type == 'create_visit':
+            await handle_create_visit(websocket_session_id, user_id, message.data)
+        elif message.type == 'update_visit':
+            await handle_update_visit(websocket_session_id, user_id, message.data)
+        elif message.type == 'delete_visit':
+            await handle_delete_visit(websocket_session_id, user_id, message.data)
+        elif message.type == 'generate_note':
+            await handle_generate_note(websocket_session_id, user_id, message.data)   
+        elif message.type == 'start_recording':
+            await handle_start_recording(websocket_session_id, user_id, message.data)
+        elif message.type == 'pause_recording':
+            await handle_pause_recording(websocket_session_id, user_id, message.data)
+        elif message.type == 'resume_recording':
+            await handle_resume_recording(websocket_session_id, user_id, message.data)
+        elif message.type == 'finish_recording':
+            await handle_finish_recording(websocket_session_id, user_id, message.data)
+    except Exception as e:
+        logger.error(f"Error processing message {message.type}: {e}")

@@ -4,3 +4,4 @@ random
 venv
 node_modules
 templates
+logs/
