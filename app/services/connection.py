@@ -1,4 +1,5 @@
 from fastapi import WebSocket
+from fastapi.websockets import WebSocketState
 from typing import Dict, List, Set
 import asyncio
 from datetime import datetime
@@ -68,7 +69,7 @@ class ConnectionManager:
         """
         for user_id in list(self.active_connections.keys()):
             for websocket_session_id, websocket in list(self.active_connections[user_id].items()):
-                if websocket.client_state.DISCONNECTED:
+                if websocket.client_state == WebSocketState.DISCONNECTED:
                     logger.info(f"Health check: Removing stale connection for user {user_id}, websocket session {websocket_session_id}")
                     await self._remove_connection(websocket, websocket_session_id, user_id)
         

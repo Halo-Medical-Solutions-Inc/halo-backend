@@ -189,7 +189,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         Manages connection lifecycle including cleanup on disconnect.
     """
     user_id = db.is_session_valid(session_id)
-    if not user_id: await websocket.close(code=1008, reason="Invalid session")
+    if not user_id: 
+        await websocket.close(code=1008, reason="Invalid session")
+        return
 
     websocket_session_id = str(uuid.uuid4())
     await manager.connect(websocket, websocket_session_id, user_id)
@@ -197,7 +199,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     try:
         while True:
             message = WebSocketMessage(**await websocket.receive_json())
-            if db.is_session_valid(message.session_id) is None: await websocket.close(code=1008, reason="Invalid session")
+            if db.is_session_valid(message.session_id) is None: 
+                await websocket.close(code=1008, reason="Invalid session")
+                return
             asyncio.create_task(process_message(websocket_session_id, user_id, message))
         
     except WebSocketDisconnect:
