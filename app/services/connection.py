@@ -67,11 +67,14 @@ class ConnectionManager:
         
         Iterates through all active connections and removes any that are in a disconnected state.
         """
-        for user_id in list(self.active_connections.keys()):
-            for websocket_session_id, websocket in list(self.active_connections[user_id].items()):
-                if websocket.client_state == WebSocketState.DISCONNECTED:
-                    logger.info(f"Health check: Removing stale connection for user {user_id}, websocket session {websocket_session_id}")
-                    await self._remove_connection(websocket, websocket_session_id, user_id)
+        connections_copy = dict(self.active_connections)
+        for user_id in connections_copy.keys():
+            if user_id in self.active_connections:
+                user_connections_copy = dict(self.active_connections[user_id])
+                for websocket_session_id, websocket in user_connections_copy.items():
+                    if websocket.client_state == WebSocketState.DISCONNECTED:
+                        logger.info(f"Health check: Removing stale connection for user {user_id}, websocket session {websocket_session_id}")
+                        await self._remove_connection(websocket, websocket_session_id, user_id)
         
     async def connect(self, websocket: WebSocket, websocket_session_id: str, user_id: str):
         """
@@ -160,22 +163,24 @@ class ConnectionManager:
         connection_count = 0
         failed_sessions = []
 
-        
-        for websocket_session_id, websocket in self.active_connections[user_id].items():
-            try:
-                msg_copy = dict(message)
-                msg_copy["was_requested"] = (websocket_session_id == requesting_websocket_session_id)
-                await websocket.send_json(msg_copy)
-                connection_count += 1
-                self.last_activity[user_id][websocket_session_id] = datetime.now()
-            except Exception as e:
-                logger.error(f"Error sending message to user {user_id}, websocket session {websocket_session_id}: {str(e)}")
-                failed_sessions.append((websocket_session_id, websocket))
+        connections_copy = dict(self.active_connections[user_id])        
+        for websocket_session_id, websocket in connections_copy.items():
+            if (user_id in self.active_connections and 
+                websocket_session_id in self.active_connections[user_id]):
+                try:
+                    msg_copy = dict(message)
+                    msg_copy["was_requested"] = (websocket_session_id == requesting_websocket_session_id)
+                    await websocket.send_json(msg_copy)
+                    connection_count += 1
+                    if user_id in self.last_activity and websocket_session_id in self.last_activity[user_id]:
+                        self.last_activity[user_id][websocket_session_id] = datetime.now()
+                except Exception as e:
+                    logger.error(f"Error sending message to user {user_id}, websocket session {websocket_session_id}: {str(e)}")
+                    failed_sessions.append((websocket_session_id, websocket))
                 
         for websocket_session_id, websocket in failed_sessions:
             logger.info(f"Removing failed connection for user {user_id}, websocket session {websocket_session_id}")
             await self._remove_connection(websocket, websocket_session_id, user_id)
-
             
         return connection_count
 
