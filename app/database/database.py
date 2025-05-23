@@ -1,389 +1,803 @@
-from pymongo import MongoClient
+from app.config import settings
+from app.services.utils import decrypt, encrypt, hash_password
 from bson import ObjectId
 from datetime import datetime, timedelta
-from app.config import settings
-from app.services.utils import encrypt, decrypt, hash_password
+from pymongo import MongoClient
+from app.services.logging import logger
+
+"""
+MongoDB Database Handler for the Halo Application.
+
+This module provides a centralized database access layer for all MongoDB operations.
+It includes functionality for managing users, sessions, templates, and visits.
+
+Key features:
+- Encryption/decryption of sensitive data
+- Session management
+- User authentication and management
+- Template management
+- Visit tracking and statistics
+
+All database operations are encapsulated in the database class,
+with proper error handling and logging.
+"""
 
 class database:
+    """
+    Main database class that handles all interactions with MongoDB.
+    Provides methods for CRUD operations on users, sessions, templates, and visits.
+    """
     def __init__(self):
-        self.client = MongoClient(settings.MONGODB_URL)
-        self.database = self.client['database']
-        self.sessions = self.database['sessions']
-        self.users = self.database['users']
-        self.templates = self.database['templates']
-        self.visits = self.database['visits']
-    
-    def create_session(self, user_id):
-        session = {
-            'user_id': user_id,
-            'expiration_date': datetime.utcnow() + timedelta(days=1),
-        }
-        self.sessions.insert_one(session)
-        if session:
+        """
+        Initialize the database connection and set up collection references.
+        Establishes connection to MongoDB using the URL from settings.
+        Sets up references to various collections used in the application.
+        
+        Raises:
+            Exception: If there's an error connecting to the database.
+        """
+        try:
+            self.client = MongoClient(settings.MONGODB_URL)
+            self.database = self.client['database']
+            self.sessions = self.database['sessions']
+            self.users = self.database['users']
+            self.templates = self.database['templates']
+            self.visits = self.database['visits']
+        except Exception as e:
+            logger.error(f"Database initialization error: {str(e)}")
+            raise
+
+    def decrypt_session(self, session):
+        """
+        Decrypt and format a session document from the database.
+        
+        Args:
+            session (dict): The encrypted session document from the database.
+            
+        Returns:
+            dict: The decrypted session document with formatted fields, or None if error occurs.
+            
+        Note:
+            Converts ObjectIds to strings and decrypts sensitive fields.
+        """
+        try:
             session['session_id'] = str(session['_id'])
             session['user_id'] = str(session['user_id'])
             session['expiration_date'] = str(session['expiration_date'])
             del session['_id']
-        return session
-    
-    def is_session_valid(self, session_id):
-        session = self.get_session(session_id)
-        if session:
-            if datetime.fromisoformat(session['expiration_date'].replace('Z', '+00:00')) > datetime.utcnow():
-                return session['user_id']
-        return None
+            return session
+        except Exception as e:
+            logger.error(f"decrypt_session error for session_id {session.get('_id', 'unknown')}: {str(e)}")
+            return None
+
+    def create_session(self, user_id):
+        """
+        Create a new session for a user.
+        
+        Args:
+            user_id (str): The ID of the user to create a session for.
+            
+        Returns:
+            dict: The newly created session document, or None if creation failed.
+            
+        Note:
+            Session expiration is set to 1 day from creation.
+        """
+        try:
+            session = {'user_id': user_id, 'expiration_date': datetime.utcnow() + timedelta(days=1)}
+            self.sessions.insert_one(session)
+            return self.decrypt_session(session)
+        except Exception as e:
+            logger.error(f"create_session error for user_id {user_id}: {str(e)}")
+            return None
 
     def delete_session(self, session_id):
-        self.sessions.delete_one({'_id': ObjectId(session_id)})
+        """
+        Delete a session from the database.
+        
+        Args:
+            session_id (str): The ID of the session to delete.
+            
+        Note:
+            This method does not return a value, and logs any errors.
+        """
+        try:
+            self.sessions.delete_one({'_id': ObjectId(session_id)})
+        except Exception as e:
+            logger.error(f"delete_session error for session_id {session_id}: {str(e)}")
 
     def get_session(self, session_id):
-        session = self.sessions.find_one({'_id': ObjectId(session_id)})
-        if session:
-            session['session_id'] = str(session['_id'])
-            session['user_id'] = str(session['user_id'])
-            session['expiration_date'] = str(session['expiration_date'])
-            del session['_id']
-        return session
+        """
+        Retrieve a session by its ID.
+        
+        Args:
+            session_id (str): The ID of the session to retrieve.
+            
+        Returns:
+            dict: The session document with formatted fields, or None if not found or error occurs.
+        """
+        try:
+            session = self.sessions.find_one({'_id': ObjectId(session_id)})
+            return self.decrypt_session(session)
+        except Exception as e:
+            logger.error(f"get_session error for session_id {session_id}: {str(e)}")
+            return None
+
+    def is_session_valid(self, session_id):
+        """
+        Check if a session is valid (exists and not expired).
+        
+        Args:
+            session_id (str): The ID of the session to validate.
+            
+        Returns:
+            str: The user_id associated with the session if valid, None otherwise.
+        """
+        try:
+            session = self.get_session(session_id)
+            if session:
+                if datetime.fromisoformat(session['expiration_date'].replace('Z', '+00:00')) > datetime.utcnow():
+                    return session['user_id']
+            return None
+        except Exception as e:
+            logger.error(f"is_session_valid error for session_id {session_id}: {str(e)}")
+            return None
 
     def decrypt_user(self, user):
-        user['user_id'] = str(user['_id'])
-        user['visit_ids'] = [str(visit_id) for visit_id in user['visit_ids']]
-        user['template_ids'] = [str(template_id) for template_id in user['template_ids']]
-        user['name'] = decrypt(user['encrypt_name'])
-        user['email'] = decrypt(user['encrypt_email'])
-        user['created_at'] = str(user['created_at'])
-        user['modified_at'] = str(user['modified_at'])
-        del user['_id']
-        del user['encrypt_name']
-        del user['encrypt_email']
-        return user
+        """
+        Decrypt and format a user document from the database.
+        
+        Args:
+            user (dict): The encrypted user document from the database.
+            
+        Returns:
+            dict: The decrypted user document with formatted fields, or None if error occurs.
+            
+        Note:
+            Converts ObjectIds to strings and decrypts sensitive fields.
+        """
+        try:
+            user['user_id'] = str(user['_id'])
+            user['visit_ids'] = [str(visit_id) for visit_id in user['visit_ids']]
+            user['template_ids'] = [str(template_id) for template_id in user['template_ids']]
+            user['name'] = decrypt(user['encrypt_name'])
+            user['email'] = decrypt(user['encrypt_email'])
+            user['created_at'] = str(user['created_at'])
+            user['modified_at'] = str(user['modified_at'])
+            del user['_id']
+            del user['encrypt_name']
+            del user['encrypt_email']
+            del user['hash_password']
+            return user
+        except Exception as e:
+            logger.error(f"decrypt_user error for user_id {user.get('_id', 'unknown')}: {str(e)}")
+            return None
     
     def create_user(self, name, email, password):
-        users = self.users.find({})
-        for user in users:
-            if 'encrypt_email' in user and decrypt(user['encrypt_email']) == email:
-                return None
-                
-        default_templates = list(self.templates.find({'status': 'DEFAULT'}))
-        default_template_ids = [template['_id'] for template in default_templates]
-        default_template_id = str(default_templates[0]['_id']) if default_templates else ''
-                
-        user = {
-            'created_at': datetime.utcnow(),
-            'modified_at': datetime.utcnow(),
-            'status': 'ACTIVE',
-            'encrypt_name': encrypt(name),
-            'encrypt_email': encrypt(email),
-            'hash_password': hash_password(password),
-            'user_specialty': '',
-            'default_template_id': default_template_id,
-            'default_language': 'en',
-            'template_ids': default_template_ids,
-            'visit_ids': [],
-            'daily_statistics': {
-            }
-        }
-        self.users.insert_one(user)
-
-        return self.decrypt_user(user)
+        """
+        Create a new user in the database.
         
-    
-    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
-        update_fields = {}
-        if name is not None:
-            update_fields['encrypt_name'] = encrypt(name)
-        if email is not None:
-            update_fields['encrypt_email'] = encrypt(email)
-        if password is not None:
-            update_fields['hash_password'] = hash_password(password)
-        if default_template_id is not None:
-            update_fields['default_template_id'] = default_template_id
-        if default_language is not None:
-            update_fields['default_language'] = default_language
-        if user_specialty is not None:
-            update_fields['user_specialty'] = user_specialty
-        if template_ids is not None:
-            update_fields['template_ids'] = template_ids
-        if visit_ids is not None:
-            update_fields['visit_ids'] = visit_ids
+        Args:
+            name (str): The user's name.
+            email (str): The user's email address.
+            password (str): The user's password.
             
-        if update_fields:
-            update_fields['modified_at'] = datetime.utcnow()
-            self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
-        user = self.users.find_one({'_id': ObjectId(user_id)})
-
-        return self.decrypt_user(user)
+        Returns:
+            dict: The newly created user document with decrypted fields, or None if creation failed.
+            
+        Note:
+            Checks for existing users with the same email before creation.
+            Automatically assigns default templates to new users.
+        """
+        try:
+            encrypted_email = encrypt(email)
+            all_users = list(self.users.find())
+            for user in all_users:
+                decrypted_email = decrypt(user['encrypt_email'])
+                if decrypted_email == email:
+                    return None
+            default_templates = list(self.templates.find({'status': 'DEFAULT'}))
+            default_template_ids = [template['_id'] for template in default_templates]
+            default_template_id = str(default_templates[0]['_id']) if default_templates else ''
+            user = {
+                'created_at': datetime.utcnow(),
+                'modified_at': datetime.utcnow(),
+                'status': 'ACTIVE',
+                'encrypt_name': encrypt(name),
+                'encrypt_email': encrypted_email,
+                'hash_password': hash_password(password),
+                'user_specialty': '',
+                'default_template_id': default_template_id,
+                'default_language': 'en',
+                'template_ids': default_template_ids,
+                'visit_ids': [],
+                'daily_statistics': {}
+            }
+            self.users.insert_one(user)
+            return self.decrypt_user(user)
+        except Exception as e:
+            logger.error(f"create_user error for email {email}: {str(e)}")
+            return None
+        
+    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
+        """
+        Update a user's information in the database.
+        
+        Args:
+            user_id (str): The ID of the user to update.
+            name (str, optional): The user's new name.
+            email (str, optional): The user's new email address.
+            password (str, optional): The user's new password.
+            user_specialty (str, optional): The user's specialty.
+            default_template_id (str, optional): The user's default template ID.
+            default_language (str, optional): The user's default language.
+            template_ids (list, optional): List of template IDs associated with the user.
+            visit_ids (list, optional): List of visit IDs associated with the user.
+            
+        Returns:
+            dict: The updated user document with decrypted fields, or None if update failed.
+        """
+        try:
+            update_fields = {}
+            if name is not None:
+                update_fields['encrypt_name'] = encrypt(name)
+            if email is not None:
+                update_fields['encrypt_email'] = encrypt(email)
+            if password is not None:
+                update_fields['hash_password'] = hash_password(password)
+            if default_template_id is not None:
+                update_fields['default_template_id'] = default_template_id
+            if default_language is not None:
+                update_fields['default_language'] = default_language
+            if user_specialty is not None:
+                update_fields['user_specialty'] = user_specialty
+            if template_ids is not None:
+                update_fields['template_ids'] = template_ids
+            if visit_ids is not None:
+                update_fields['visit_ids'] = visit_ids
+            if update_fields:
+                update_fields['modified_at'] = datetime.utcnow()
+                self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            return self.decrypt_user(user)
+        except Exception as e:
+            logger.error(f"update_user error for user_id {user_id}: {str(e)}")
+            return None
     
     def delete_user(self, user_id):
-        self.users.delete_one({'_id': ObjectId(user_id)})
-        return True
+        """
+        Delete a user from the database.
+        
+        Args:
+            user_id (str): The ID of the user to delete.
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        try:
+            self.users.delete_one({'_id': ObjectId(user_id)})
+            return True
+        except Exception as e:
+            logger.error(f"delete_user error for user_id {user_id}: {str(e)}")
+            return False
     
     def get_user(self, user_id):
-        user = self.users.find_one({'_id': ObjectId(user_id)})
-        return self.decrypt_user(user)
+        """
+        Retrieve a user by their ID.
+        
+        Args:
+            user_id (str): The ID of the user to retrieve.
+            
+        Returns:
+            dict: The user document with decrypted fields, or None if not found or error occurs.
+        """
+        try:
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            return self.decrypt_user(user)
+        except Exception as e:
+            logger.error(f"get_user error for user_id {user_id}: {str(e)}")
+            return None
     
     def get_user_by_email(self, email):
-        users = self.users.find({})
-        for user in users:
-            if 'encrypt_email' in user and decrypt(user['encrypt_email']) == email:
-                return self.decrypt_user(user)
-        return None
+        """
+        Retrieve a user by their email address.
+        
+        Args:
+            email (str): The email address to search for.
+            
+        Returns:
+            dict: The user document with decrypted fields, or None if not found or error occurs.
+        """
+        try:
+            all_users = list(self.users.find())
+            for user in all_users:
+                decrypted_email = decrypt(user['encrypt_email'])
+                if decrypted_email == email:
+                    return self.decrypt_user(user)
+            return None
+        except Exception as e:
+            logger.error(f"get_user_by_email error for email {email}: {str(e)}")
+            return None
     
     def verify_user(self, email, password):
-        users = self.users.find({})
-        for user in users:
-            if 'encrypt_email' in user and decrypt(user['encrypt_email']) == email:
-                if user['hash_password'] == hash_password(password):
+        """
+        Verify a user's login credentials.
+        
+        Args:
+            email (str): The user's email address.
+            password (str): The user's password.
+            
+        Returns:
+            dict: The user document with decrypted fields if credentials are valid, None otherwise.
+        """
+        try:
+            hashed_password = hash_password(password)
+            all_users = list(self.users.find())
+            for user in all_users:
+                decrypted_email = decrypt(user['encrypt_email'])
+                if decrypted_email == email and user['hash_password'] == hashed_password:
                     return self.decrypt_user(user)
-                return None
-        return None
+            return None
+        except Exception as e:
+            logger.error(f"verify_user error for email {email}: {str(e)}")
+            return None
     
     def get_user_templates(self, user_id):
+        """
+        Retrieve all templates associated with a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            
+        Returns:
+            list: A list of template documents with decrypted fields, or empty list if error occurs.
+        """
         try:
             user = self.get_user(user_id)
             template_ids = [ObjectId(tid) for tid in user['template_ids']]
             templates = list(self.templates.find({'_id': {'$in': template_ids}}))
             return [self.decrypt_template(template) for template in templates]
         except Exception as e:
+            logger.error(f"get_user_templates error for user_id {user_id}: {str(e)}")
             return []
     
     def get_user_visits(self, user_id):
+        """
+        Retrieve all visits associated with a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            
+        Returns:
+            list: A list of visit documents with decrypted fields, or empty list if error occurs.
+        """
         try:
             user = self.get_user(user_id)
             visit_ids = [ObjectId(vid) for vid in user['visit_ids']]
             visits = list(self.visits.find({'_id': {'$in': visit_ids}}))
             return [self.decrypt_visit(visit) for visit in visits]
         except Exception as e:
+            logger.error(f"get_user_visits error for user_id {user_id}: {str(e)}")
             return []
         
     def decrypt_template(self, template):
-        template['template_id'] = str(template['_id'])
-        template['user_id'] = str(template['user_id'])
-        template['created_at'] = str(template['created_at'])
-        template['modified_at'] = str(template['modified_at'])
-        template['name'] = decrypt(template['encrypt_name'])
-        template['instructions'] = decrypt(template['encrypt_instructions'])
-        template['print'] = decrypt(template['encrypt_print'])
-        if 'encrypt_header' in template:
-            template['header'] = decrypt(template['encrypt_header'])
-        if 'encrypt_footer' in template:
-            template['footer'] = decrypt(template['encrypt_footer'])
-        del template['_id']
-        del template['encrypt_name']
-        del template['encrypt_instructions']
-        if 'encrypt_header' in template:
-            del template['encrypt_header']
-        if 'encrypt_footer' in template:
-            del template['encrypt_footer']
-        return template
+        """
+        Decrypt and format a template document from the database.
+        
+        Args:
+            template (dict): The encrypted template document from the database.
+            
+        Returns:
+            dict: The decrypted template document with formatted fields, or None if error occurs.
+            
+        Note:
+            Converts ObjectIds to strings and decrypts sensitive fields.
+        """
+        try:
+            template['template_id'] = str(template['_id'])
+            template['user_id'] = str(template['user_id'])
+            template['created_at'] = str(template['created_at'])
+            template['modified_at'] = str(template['modified_at'])
+            template['name'] = decrypt(template['encrypt_name'])
+            template['instructions'] = decrypt(template['encrypt_instructions'])
+            template['print'] = decrypt(template['encrypt_print'])
+            if 'encrypt_header' in template: template['header'] = decrypt(template['encrypt_header'])
+            if 'encrypt_footer' in template: template['footer'] = decrypt(template['encrypt_footer'])
+            del template['_id']
+            del template['encrypt_name']
+            del template['encrypt_instructions']
+            if 'encrypt_header' in template: del template['encrypt_header']
+            if 'encrypt_footer' in template: del template['encrypt_footer']
+            return template
+        except Exception as e:
+            logger.error(f"decrypt_template error for template_id {template.get('_id', 'unknown')}: {str(e)}")
+            return None
     
     def create_template(self, user_id):
-        user = self.get_user(user_id)
-        template = {
-            'user_id': user_id,
-            'created_at': datetime.utcnow(),
-            'modified_at': datetime.utcnow(),
-            'status': 'READY',
-            'encrypt_name': encrypt('New Template'),
-            'encrypt_instructions': encrypt(''),
-            'encrypt_print': encrypt(''),
-            'encrypt_header': encrypt(''),
-            'encrypt_footer': encrypt(''),
-        }
-        self.templates.insert_one(template)
-        user['template_ids'].append(template['_id'])
-        self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'template_ids': user['template_ids']}})
-
-        return self.decrypt_template(template)
+        """
+        Create a new template for a user.
+        
+        Args:
+            user_id (str): The ID of the user who will own the template.
+            
+        Returns:
+            dict: The newly created template document with decrypted fields, or None if creation failed.
+            
+        Note:
+            The template is initialized with default values and added to the user's template_ids.
+        """
+        try:
+            user = self.get_user(user_id)
+            template = {
+                'user_id': user_id,
+                'created_at': datetime.utcnow(),
+                'modified_at': datetime.utcnow(),
+                'status': 'READY',
+                'encrypt_name': encrypt('New Template'),
+                'encrypt_instructions': encrypt(''),
+                'encrypt_print': encrypt(''),
+                'encrypt_header': encrypt(''),
+                'encrypt_footer': encrypt(''),
+            }
+            self.templates.insert_one(template)
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$push': {'template_ids': template['_id']}})
+            return self.decrypt_template(template)
+        except Exception as e:
+            logger.error(f"create_template error for user_id {user_id}: {str(e)}")
+            return None
 
     def update_template(self, template_id, name=None, instructions=None, print=None, header=None, footer=None):
-        update_fields = {}
-        if name is not None:
-            update_fields['encrypt_name'] = encrypt(name)
-        if instructions is not None:
-            update_fields['encrypt_instructions'] = encrypt(instructions)
-        if print is not None:
-            update_fields['encrypt_print'] = encrypt(print)  
-        if header is not None:
-            update_fields['encrypt_header'] = encrypt(header)
-        if footer is not None:
-            update_fields['encrypt_footer'] = encrypt(footer)
+        """
+        Update a template's information in the database.
         
-        if instructions is not None:
-            update_fields['modified_at'] = datetime.utcnow()
+        Args:
+            template_id (str): The ID of the template to update.
+            name (str, optional): The template's new name.
+            instructions (str, optional): The template's new instructions.
+            print (str, optional): The template's new print format.
+            header (str, optional): The template's new header.
+            footer (str, optional): The template's new footer.
             
-        if update_fields:
-            self.templates.update_one({'_id': ObjectId(template_id)}, {'$set': update_fields})
-        template = self.templates.find_one({'_id': ObjectId(template_id)})
-        
-        return self.decrypt_template(template)
+        Returns:
+            dict: The updated template document with decrypted fields, or None if update failed.
+        """
+        try:
+            update_fields = {}
+            if name is not None:
+                update_fields['encrypt_name'] = encrypt(name)
+            if instructions is not None:
+                update_fields['encrypt_instructions'] = encrypt(instructions)
+            if print is not None:
+                update_fields['encrypt_print'] = encrypt(print)  
+            if header is not None:
+                update_fields['encrypt_header'] = encrypt(header)
+            if footer is not None:
+                update_fields['encrypt_footer'] = encrypt(footer)
+            if instructions is not None:
+                update_fields['modified_at'] = datetime.utcnow()
+            if update_fields:
+                self.templates.update_one({'_id': ObjectId(template_id)}, {'$set': update_fields})
+            template = self.templates.find_one({'_id': ObjectId(template_id)})
+            return self.decrypt_template(template)
+        except Exception as e:
+            logger.error(f"update_template error for template_id {template_id}: {str(e)}")
+            return None
+
     def delete_template(self, template_id, user_id):
-        user = self.get_user(user_id)
-        user['template_ids'].remove(template_id)
-        self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'template_ids': user['template_ids']}})
-        self.templates.delete_one({'_id': ObjectId(template_id)})
-        return True
+        """
+        Delete a template from the database and remove it from the user's template list.
+        
+        Args:
+            template_id (str): The ID of the template to delete.
+            user_id (str): The ID of the user who owns the template.
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        try:
+            self.templates.delete_one({'_id': ObjectId(template_id)})
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$pull': {'template_ids': ObjectId(template_id)}})
+            return True
+        except Exception as e:
+            logger.error(f"delete_template error for template_id {template_id}, user_id {user_id}: {str(e)}")
+            return False
 
     def get_template(self, template_id):
-        template = self.templates.find_one({'_id': ObjectId(template_id)})
-        return self.decrypt_template(template)
+        """
+        Retrieve a template by its ID.
+        
+        Args:
+            template_id (str): The ID of the template to retrieve.
+            
+        Returns:
+            dict: The template document with decrypted fields, or None if not found or error occurs.
+        """
+        try:
+            template = self.templates.find_one({'_id': ObjectId(template_id)})
+            return self.decrypt_template(template)
+        except Exception as e:
+            logger.error(f"get_template error for template_id {template_id}: {str(e)}")
+            return None
     
     def decrypt_visit(self, visit):
-        visit['visit_id'] = str(visit['_id'])
-        visit['user_id'] = str(visit['user_id'])
-        visit['created_at'] = str(visit['created_at'])
-        visit['modified_at'] = str(visit['modified_at'])
-        if visit['template_modified_at']:
-            visit['template_modified_at'] = str(visit['template_modified_at'])
-        if visit['recording_started_at']:
-            visit['recording_started_at'] = str(visit['recording_started_at'])
-        if visit['recording_finished_at']:
-            visit['recording_finished_at'] = str(visit['recording_finished_at'])
-        visit['name'] = decrypt(visit['encrypt_name'])
-        visit['additional_context'] = decrypt(visit['encrypt_additional_context'])
-        visit['transcript'] = decrypt(visit['encrypt_transcript'])
-        visit['note'] = decrypt(visit['encrypt_note'])
-        del visit['_id']
-        del visit['encrypt_name']
-        del visit['encrypt_additional_context']
-        del visit['encrypt_transcript']
-        del visit['encrypt_note']
-        return visit
+        """
+        Decrypt and format a visit document from the database.
+        
+        Args:
+            visit (dict): The encrypted visit document from the database.
+            
+        Returns:
+            dict: The decrypted visit document with formatted fields, or None if error occurs.
+            
+        Note:
+            Converts ObjectIds to strings and decrypts sensitive fields.
+        """
+        try:
+            visit['visit_id'] = str(visit['_id'])
+            visit['user_id'] = str(visit['user_id'])
+            visit['created_at'] = str(visit['created_at'])
+            visit['modified_at'] = str(visit['modified_at'])
+            if visit['template_modified_at']: visit['template_modified_at'] = str(visit['template_modified_at'])
+            if visit['recording_started_at']: visit['recording_started_at'] = str(visit['recording_started_at'])
+            if visit['recording_finished_at']: visit['recording_finished_at'] = str(visit['recording_finished_at'])
+            visit['name'] = decrypt(visit['encrypt_name'])
+            visit['additional_context'] = decrypt(visit['encrypt_additional_context'])
+            visit['transcript'] = decrypt(visit['encrypt_transcript'])
+            visit['note'] = decrypt(visit['encrypt_note'])
+            del visit['_id']
+            del visit['encrypt_name']
+            del visit['encrypt_additional_context']
+            del visit['encrypt_transcript']
+            del visit['encrypt_note']
+            return visit
+        except Exception as e:
+            logger.error(f"decrypt_visit error for visit_id {visit.get('_id', 'unknown')}: {str(e)}")
+            return None
     
     def create_visit(self, user_id):
-        user = self.get_user(user_id)
-        visit = {
-            'user_id': user_id,
-            'created_at': datetime.utcnow(),
-            'modified_at': datetime.utcnow(),
-            'status': 'NOT_STARTED',
-            'encrypt_name': encrypt('New Visit'),
-            'template_modified_at': datetime.utcnow(),
-            'template_id': user['default_template_id'],
-            'language': user['default_language'],
-            'encrypt_additional_context': encrypt(''),
-            'recording_started_at': '',
-            'recording_duration': '',
-            'recording_finished_at': '',
-            'encrypt_transcript': encrypt(''),
-            'encrypt_note': encrypt(''),
-           
-        }
-        self.visits.insert_one(visit)
-
-        user['visit_ids'].append(visit['_id'])
-        self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'visit_ids': user['visit_ids']}})
+        """
+        Create a new visit for a user.
         
-        self.update_daily_statistic(user_id, 'visits', 1)
-
-        return self.decrypt_visit(visit)
+        Args:
+            user_id (str): The ID of the user who will own the visit.
+            
+        Returns:
+            dict: The newly created visit document with decrypted fields, or None if creation failed.
+            
+        Note:
+            The visit is initialized with default values and added to the user's visit_ids.
+            Also updates the user's daily statistics.
+        """
+        try:
+            user = self.get_user(user_id)
+            visit = {
+                'user_id': user_id,
+                'created_at': datetime.utcnow(),
+                'modified_at': datetime.utcnow(),
+                'status': 'NOT_STARTED',
+                'encrypt_name': encrypt('New Visit'),
+                'template_modified_at': datetime.utcnow(),
+                'template_id': user['default_template_id'],
+                'language': user['default_language'],
+                'encrypt_additional_context': encrypt(''),
+                'recording_started_at': '',
+                'recording_duration': '',
+                'recording_finished_at': '',
+                'encrypt_transcript': encrypt(''),
+                'encrypt_note': encrypt(''),
+            }
+            self.visits.insert_one(visit)
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$push': {'visit_ids': visit['_id']}})
+            self.update_daily_statistic(user_id, 'visits', 1)
+            return self.decrypt_visit(visit)
+        except Exception as e:
+            logger.error(f"create_visit error for user_id {user_id}: {str(e)}")
+            return None
     
     def update_visit(self, visit_id, status=None, name=None, template_modified_at=None, template_id=None, language=None, additional_context=None, recording_started_at=None, recording_duration=None, recording_finished_at=None, transcript=None, note=None):
-        update_fields = {}
-        if status is not None:
-            update_fields['status'] = status
-        if name is not None:
-            update_fields['encrypt_name'] = encrypt(name)
-        if template_modified_at is not None:
-            update_fields['template_modified_at'] = template_modified_at
-        if template_id is not None:
-            update_fields['template_id'] = template_id
-        if language is not None:
-            update_fields['language'] = language
-        if additional_context is not None:
-            update_fields['encrypt_additional_context'] = encrypt(additional_context)
-        if recording_started_at is not None:
-            update_fields['recording_started_at'] = recording_started_at
-        if recording_duration is not None:
-            current_visit = self.visits.find_one({'_id': ObjectId(visit_id)})
-            duration_increment = max(0, float(recording_duration or 0) - float(current_visit.get('recording_duration', 0) or 0))
-            if duration_increment > 0:
-                self.update_daily_statistic(str(current_visit['user_id']), 'audio_time', duration_increment)
-            update_fields['recording_duration'] = recording_duration
-        if recording_finished_at is not None:
-            update_fields['recording_finished_at'] = recording_finished_at
-        if transcript is not None:
-            update_fields['encrypt_transcript'] = encrypt(transcript)
-        if note is not None:
-            update_fields['encrypt_note'] = encrypt(note)
-
-        if update_fields:
-            update_fields['modified_at'] = datetime.utcnow()
-            self.visits.update_one({'_id': ObjectId(visit_id)}, {'$set': update_fields})
-        visit = self.visits.find_one({'_id': ObjectId(visit_id)})
+        """
+        Update a visit's information in the database.
         
-        return self.decrypt_visit(visit)
+        Args:
+            visit_id (str): The ID of the visit to update.
+            status (str, optional): The visit's new status.
+            name (str, optional): The visit's new name.
+            template_modified_at (datetime, optional): The timestamp when the template was last modified.
+            template_id (str, optional): The ID of the template associated with the visit.
+            language (str, optional): The language used for the visit.
+            additional_context (str, optional): Additional context for the visit.
+            recording_started_at (datetime, optional): The timestamp when recording started.
+            recording_duration (str, optional): The duration of the recording.
+            recording_finished_at (datetime, optional): The timestamp when recording finished.
+            transcript (str, optional): The transcript of the visit.
+            note (str, optional): Notes for the visit.
+            
+        Returns:
+            dict: The updated visit document with decrypted fields, or None if update failed.
+            
+        Note:
+            Updates the user's daily statistics if recording duration changes.
+        """
+        try:
+            update_fields = {}
+            if status is not None:
+                update_fields['status'] = status
+            if name is not None:
+                update_fields['encrypt_name'] = encrypt(name)
+            if template_modified_at is not None:
+                update_fields['template_modified_at'] = template_modified_at
+            if template_id is not None:
+                update_fields['template_id'] = template_id
+            if language is not None:
+                update_fields['language'] = language
+            if additional_context is not None:
+                update_fields['encrypt_additional_context'] = encrypt(additional_context)
+            if recording_started_at is not None:
+                update_fields['recording_started_at'] = recording_started_at
+            if recording_finished_at is not None:
+                update_fields['recording_finished_at'] = recording_finished_at
+            if transcript is not None:
+                update_fields['encrypt_transcript'] = encrypt(transcript)
+            if note is not None:
+                update_fields['encrypt_note'] = encrypt(note)
+            if recording_duration is not None:
+                current_visit = self.visits.find_one({'_id': ObjectId(visit_id)})
+                update_fields['recording_duration'] = recording_duration
+                duration_increment = max(0, float(recording_duration or 0) - float(current_visit.get('recording_duration', 0) or 0))
+                if duration_increment > 0:
+                    self.update_daily_statistic(str(current_visit['user_id']), 'audio_time', duration_increment)
+            if update_fields:
+                update_fields['modified_at'] = datetime.utcnow()
+                self.visits.update_one({'_id': ObjectId(visit_id)}, {'$set': update_fields})            
+            visit = self.visits.find_one({'_id': ObjectId(visit_id)})
+            return self.decrypt_visit(visit)
+        except Exception as e:
+            logger.error(f"update_visit error for visit_id {visit_id}: {str(e)}")
+            return None
 
     def delete_visit(self, visit_id, user_id):
-        user = self.get_user(user_id)
-        user['visit_ids'].remove(visit_id)
-        self.users.update_one({'_id': ObjectId(user_id)}, {'$set': {'visit_ids': user['visit_ids']}})
-        self.visits.delete_one({'_id': ObjectId(visit_id)})
-        return True
+        """
+        Delete a visit from the database and remove it from the user's visit list.
+        
+        Args:
+            visit_id (str): The ID of the visit to delete.
+            user_id (str): The ID of the user who owns the visit.
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        try:
+            self.visits.delete_one({'_id': ObjectId(visit_id)})
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$pull': {'visit_ids': ObjectId(visit_id)}})
+            return True
+        except Exception as e:
+            logger.error(f"delete_visit error for visit_id {visit_id}, user_id {user_id}: {str(e)}")
+            return False
 
     def get_visit(self, visit_id):
-        visit = self.visits.find_one({'_id': ObjectId(visit_id)})
-        return self.decrypt_visit(visit)
+        """
+        Retrieve a visit by its ID.
+        
+        Args:
+            visit_id (str): The ID of the visit to retrieve.
+            
+        Returns:
+            dict: The visit document with decrypted fields, or None if not found or error occurs.
+        """
+        try:
+            visit = self.visits.find_one({'_id': ObjectId(visit_id)})
+            return self.decrypt_visit(visit)
+        except Exception as e:
+            logger.error(f"get_visit error for visit_id {visit_id}: {str(e)}")
+            return None
 
-    def create_default_template(self, name,  instructions, print='', header='', footer=''):
-        template = {
-            'user_id': 'HALO',
-            'created_at': datetime.utcnow(),
-            'modified_at': datetime.utcnow(),
-            'status': 'DEFAULT',
-            'encrypt_name': encrypt(name),
-            'encrypt_instructions': encrypt(instructions),
-            'encrypt_print': encrypt(print),
-            'encrypt_header': encrypt(header),
-            'encrypt_footer': encrypt(footer),
-        }
-        self.templates.insert_one(template)
-
-        users = self.users.find({})
-        for user in users:
-            user['template_ids'].append(template['_id'])
-            self.users.update_one({'_id': ObjectId(user['_id'])}, {'$set': {'template_ids': user['template_ids']}})
-        return self.decrypt_template(template)
-    
-    def get_default_template(self, template_id):
-        template = self.templates.find_one({'_id': ObjectId(template_id)})
-        return self.decrypt_template(template)
+    def create_default_template(self, name, instructions, print='', header='', footer=''):
+        """
+        Create a default template available to all users.
+        
+        Args:
+            name (str): The template's name.
+            instructions (str): The template's instructions.
+            print (str, optional): The template's print format. Defaults to empty string.
+            header (str, optional): The template's header. Defaults to empty string.
+            footer (str, optional): The template's footer. Defaults to empty string.
+            
+        Returns:
+            dict: The newly created template document with decrypted fields, or None if creation failed.
+            
+        Note:
+            This template is added to all users' template_ids and marked with 'DEFAULT' status.
+        """
+        try:
+            template = {
+                'user_id': 'HALO',
+                'created_at': datetime.utcnow(),
+                'modified_at': datetime.utcnow(),
+                'status': 'DEFAULT',
+                'encrypt_name': encrypt(name),
+                'encrypt_instructions': encrypt(instructions),
+                'encrypt_print': encrypt(print),
+                'encrypt_header': encrypt(header),
+                'encrypt_footer': encrypt(footer),
+            }
+            self.templates.insert_one(template)
+            self.users.update_many({}, {'$push': {'template_ids': template['_id']}})
+            return self.decrypt_template(template)
+        except Exception as e:
+            logger.error(f"create_default_template error for name {name}: {str(e)}")
+            return None
         
     def delete_default_template(self, template_id):
-        self.templates.delete_one({'_id': ObjectId(template_id)})
-        users = self.users.find({})
-        for user in users:
-            if template_id in user['template_ids']:
-                user['template_ids'].remove(template_id)
-                self.users.update_one({'_id': ObjectId(user['_id'])}, {'$set': {'template_ids': user['template_ids']}})
-        return True
+        """
+        Delete a default template and remove it from all users' template lists.
+        
+        Args:
+            template_id (str): The ID of the default template to delete.
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        try:
+            self.templates.delete_one({'_id': ObjectId(template_id)})
+            self.users.update_many({}, {'$pull': {'template_ids': ObjectId(template_id)}})
+            return True
+        except Exception as e:
+            logger.error(f"delete_default_template error for template_id {template_id}: {str(e)}")
+            return False
+
+    def get_default_template(self, template_id):
+        """
+        Retrieve a default template by its ID.
+        
+        Args:
+            template_id (str): The ID of the default template to retrieve.
+            
+        Returns:
+            dict: The template document with decrypted fields, or None if not found or error occurs.
+        """
+        try:
+            template = self.templates.find_one({'_id': ObjectId(template_id)})
+            return self.decrypt_template(template)
+        except Exception as e:
+            logger.error(f"get_default_template error for template_id {template_id}: {str(e)}")
+            return None
 
     def update_daily_statistic(self, user_id, stat_type, value):
-        user = self.users.find_one({'_id': ObjectId(user_id)})
-        if not user:
-            return
-            
-        today = datetime.utcnow().strftime('%Y-%m-%d')
-        daily_statistics = user.get('daily_statistics', {})
+        """
+        Update a user's daily statistics.
         
-        if today not in daily_statistics:
-            daily_statistics[today] = {
-                'visits': 0,
-                'audio_time': 0
-            }
+        Args:
+            user_id (str): The ID of the user whose statistics to update.
+            stat_type (str): The type of statistic to update ('visits' or 'audio_time').
+            value: The value to add to the statistic.
             
-        if stat_type == 'visits':
-            daily_statistics[today]['visits'] += 1
-        elif stat_type == 'audio_time':
-            if isinstance(value, str):
-                try:
-                    value = float(value)
-                except ValueError:
-                    value = 0
-            
-            daily_statistics[today]['audio_time'] += value
-            
-        self.users.update_one(
-            {'_id': ObjectId(user_id)},
-            {'$set': {'daily_statistics': daily_statistics}}
-        )
+        Note:
+            Creates a new daily record if one doesn't exist for today.
+            For 'visits', increments by 1.
+            For 'audio_time', increments by the provided value.
+        """
+        try:
+            today = datetime.utcnow().strftime('%Y-%m-%d')
+            self.users.update_one(
+                {'_id': ObjectId(user_id), f'daily_statistics.{today}': {'$exists': False}},
+                {'$set': {f'daily_statistics.{today}': {'visits': 0, 'audio_time': 0}}}
+            )
+            if stat_type == 'visits':
+                self.users.update_one(
+                    {'_id': ObjectId(user_id)},
+                    {'$inc': {f'daily_statistics.{today}.visits': 1}}
+                )
+            elif stat_type == 'audio_time':
+                if isinstance(value, str):
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        value = 0
+                self.users.update_one(
+                    {'_id': ObjectId(user_id)},
+                    {'$inc': {f'daily_statistics.{today}.audio_time': value}}
+                )
+        except Exception as e:
+            logger.error(f"update_daily_statistic error for user_id {user_id}, stat_type {stat_type}, value {value}: {str(e)}")
+
+db = database()

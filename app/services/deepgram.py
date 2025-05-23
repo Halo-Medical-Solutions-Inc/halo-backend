@@ -208,4 +208,3 @@ class DeepgramTranscriber:
         )
         response = self.deepgram.listen.rest.v("1").transcribe_file(payload, options)
         return response
-
