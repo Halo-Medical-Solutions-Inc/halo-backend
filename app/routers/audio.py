@@ -228,8 +228,11 @@ async def handle_pause_recording(websocket_session_id: str, user_id: str, data: 
     try:
         old_visit = db.get_visit(data["visit_id"])
         old_duration = int(old_visit["recording_duration"] if old_visit["recording_duration"] else 0)
-        time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
-        new_duration = old_duration + time_diff
+        if old_visit.get("recording_started_at"):
+            time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
+            new_duration = old_duration + time_diff
+        else:
+            new_duration = old_duration
         visit = db.update_visit(data["visit_id"], status="PAUSED", recording_duration=str(new_duration))
         broadcast_message = {
             "type": "pause_recording",
@@ -268,8 +271,11 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         recording_finished_at = str(datetime.utcnow())
         old_visit = db.get_visit(data["visit_id"])
         old_duration = int(old_visit.get("recording_duration") or 0)
-        time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
-        new_duration = old_duration + time_diff
+        if old_visit.get("recording_started_at"):
+            time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
+            new_duration = old_duration + time_diff
+        else:
+            new_duration = old_duration
         visit = db.update_visit(data["visit_id"], status="FINISHED", recording_finished_at=recording_finished_at, recording_duration=str(new_duration))
         broadcast_message = {
             "type": "finish_recording",

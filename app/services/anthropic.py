@@ -8,7 +8,7 @@ This module provides a service for interacting with the Anthropic API.
 It includes functionality for streaming and non-streaming responses from the API.
 """
 
-MODEL = "claude-3-7-sonnet-latest"
+MODEL = "claude-3-7-sonnet-20250219"
 MAX_TOKENS = 10000
 
 anthropic_client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
