@@ -61,11 +61,12 @@ class database:
             Converts ObjectIds to strings and decrypts sensitive fields.
         """
         try:
-            session['session_id'] = str(session['_id'])
-            session['user_id'] = str(session['user_id'])
-            session['expiration_date'] = str(session['expiration_date'])
-            del session['_id']
-            return session
+            session_copy = session.copy()
+            session_copy['session_id'] = str(session_copy['_id'])
+            session_copy['user_id'] = str(session_copy['user_id'])
+            session_copy['expiration_date'] = str(session_copy['expiration_date'])
+            del session_copy['_id']
+            return session_copy
         except Exception as e:
             logger.error(f"decrypt_session error for session_id {session.get('_id', 'unknown')}: {str(e)}")
             return None
@@ -157,18 +158,19 @@ class database:
             Converts ObjectIds to strings and decrypts sensitive fields.
         """
         try:
-            user['user_id'] = str(user['_id'])
-            user['visit_ids'] = [str(visit_id) for visit_id in user['visit_ids']]
-            user['template_ids'] = [str(template_id) for template_id in user['template_ids']]
-            user['name'] = decrypt(user['encrypt_name'])
-            user['email'] = decrypt(user['encrypt_email'])
-            user['created_at'] = str(user['created_at'])
-            user['modified_at'] = str(user['modified_at'])
-            del user['_id']
-            del user['encrypt_name']
-            del user['encrypt_email']
-            del user['hash_password']
-            return user
+            user_copy = user.copy()
+            user_copy['user_id'] = str(user_copy['_id'])
+            user_copy['visit_ids'] = [str(visit_id) for visit_id in user_copy['visit_ids']]
+            user_copy['template_ids'] = [str(template_id) for template_id in user_copy['template_ids']]
+            user_copy['name'] = decrypt(user_copy['encrypt_name'])
+            user_copy['email'] = decrypt(user_copy['encrypt_email'])
+            user_copy['created_at'] = str(user_copy['created_at'])
+            user_copy['modified_at'] = str(user_copy['modified_at'])
+            del user_copy['_id']
+            del user_copy['encrypt_name']
+            del user_copy['encrypt_email']
+            del user_copy['hash_password']
+            return user_copy
         except Exception as e:
             logger.error(f"decrypt_user error for user_id {user.get('_id', 'unknown')}: {str(e)}")
             return None
@@ -394,21 +396,23 @@ class database:
             Converts ObjectIds to strings and decrypts sensitive fields.
         """
         try:
-            template['template_id'] = str(template['_id'])
-            template['user_id'] = str(template['user_id'])
-            template['created_at'] = str(template['created_at'])
-            template['modified_at'] = str(template['modified_at'])
-            template['name'] = decrypt(template['encrypt_name'])
-            template['instructions'] = decrypt(template['encrypt_instructions'])
-            template['print'] = decrypt(template['encrypt_print'])
-            if 'encrypt_header' in template: template['header'] = decrypt(template['encrypt_header'])
-            if 'encrypt_footer' in template: template['footer'] = decrypt(template['encrypt_footer'])
-            del template['_id']
-            del template['encrypt_name']
-            del template['encrypt_instructions']
-            if 'encrypt_header' in template: del template['encrypt_header']
-            if 'encrypt_footer' in template: del template['encrypt_footer']
-            return template
+            template_copy = template.copy()
+            template_copy['template_id'] = str(template_copy['_id'])
+            template_copy['user_id'] = str(template_copy['user_id'])
+            template_copy['created_at'] = str(template_copy['created_at'])
+            template_copy['modified_at'] = str(template_copy['modified_at'])
+            template_copy['name'] = decrypt(template_copy['encrypt_name'])
+            template_copy['instructions'] = decrypt(template_copy['encrypt_instructions'])
+            template_copy['print'] = decrypt(template_copy['encrypt_print'])
+            if 'encrypt_header' in template_copy: template_copy['header'] = decrypt(template_copy['encrypt_header'])
+            if 'encrypt_footer' in template_copy: template_copy['footer'] = decrypt(template_copy['encrypt_footer'])
+            del template_copy['_id']
+            del template_copy['encrypt_name']
+            del template_copy['encrypt_instructions']
+            del template_copy['encrypt_print']
+            if 'encrypt_header' in template_copy: del template_copy['encrypt_header']
+            if 'encrypt_footer' in template_copy: del template_copy['encrypt_footer']
+            return template_copy
         except Exception as e:
             logger.error(f"decrypt_template error for template_id {template.get('_id', 'unknown')}: {str(e)}")
             return None
@@ -533,23 +537,24 @@ class database:
             Converts ObjectIds to strings and decrypts sensitive fields.
         """
         try:
-            visit['visit_id'] = str(visit['_id'])
-            visit['user_id'] = str(visit['user_id'])
-            visit['created_at'] = str(visit['created_at'])
-            visit['modified_at'] = str(visit['modified_at'])
-            if visit['template_modified_at']: visit['template_modified_at'] = str(visit['template_modified_at'])
-            if visit['recording_started_at']: visit['recording_started_at'] = str(visit['recording_started_at'])
-            if visit['recording_finished_at']: visit['recording_finished_at'] = str(visit['recording_finished_at'])
-            visit['name'] = decrypt(visit['encrypt_name'])
-            visit['additional_context'] = decrypt(visit['encrypt_additional_context'])
-            visit['transcript'] = decrypt(visit['encrypt_transcript'])
-            visit['note'] = decrypt(visit['encrypt_note'])
-            del visit['_id']
-            del visit['encrypt_name']
-            del visit['encrypt_additional_context']
-            del visit['encrypt_transcript']
-            del visit['encrypt_note']
-            return visit
+            visit_copy = visit.copy()
+            visit_copy['visit_id'] = str(visit_copy['_id'])
+            visit_copy['user_id'] = str(visit_copy['user_id'])
+            visit_copy['created_at'] = str(visit_copy['created_at'])
+            visit_copy['modified_at'] = str(visit_copy['modified_at'])
+            if visit_copy['template_modified_at']: visit_copy['template_modified_at'] = str(visit_copy['template_modified_at'])
+            if visit_copy['recording_started_at']: visit_copy['recording_started_at'] = str(visit_copy['recording_started_at'])
+            if visit_copy['recording_finished_at']: visit_copy['recording_finished_at'] = str(visit_copy['recording_finished_at'])
+            visit_copy['name'] = decrypt(visit_copy['encrypt_name'])
+            visit_copy['additional_context'] = decrypt(visit_copy['encrypt_additional_context'])
+            visit_copy['transcript'] = decrypt(visit_copy['encrypt_transcript'])
+            visit_copy['note'] = decrypt(visit_copy['encrypt_note'])
+            del visit_copy['_id']
+            del visit_copy['encrypt_name']
+            del visit_copy['encrypt_additional_context']
+            del visit_copy['encrypt_transcript']
+            del visit_copy['encrypt_note']
+            return visit_copy
         except Exception as e:
             logger.error(f"decrypt_visit error for visit_id {visit.get('_id', 'unknown')}: {str(e)}")
             return None

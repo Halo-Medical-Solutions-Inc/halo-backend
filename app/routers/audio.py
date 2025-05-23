@@ -101,9 +101,16 @@ class Transcriber:
     async def disconnect(self):
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
+            try:
+                self.keep_alive_task = None
+            except:
+                pass
         if self.connection:
-            self.connection.finish()
-
+            try:
+                self.connection.finish()
+            except:
+                pass
+            self.connection = None
 
 @router.websocket("/ws/{visit_id}")
 async def transcribe(websocket: WebSocket, visit_id: str):
