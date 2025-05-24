@@ -450,7 +450,7 @@ class database:
             logger.error(f"create_template error for user_id {user_id}: {str(e)}")
             return None
 
-    def update_template(self, template_id, name=None, instructions=None, print=None, header=None, footer=None):
+    def update_template(self, template_id, status=None, name=None, instructions=None, print=None, header=None, footer=None):
         """
         Update a template's information in the database.
         
@@ -467,6 +467,8 @@ class database:
         """
         try:
             update_fields = {}
+            if status is not None:
+                update_fields['status'] = status
             if name is not None:
                 update_fields['encrypt_name'] = encrypt(name)
             if instructions is not None:

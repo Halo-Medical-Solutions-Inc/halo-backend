@@ -1,6 +1,8 @@
 from app.database.database import db
 from app.services.connection import manager
 from app.services.logging import logger
+from app.services.prompts import get_template_instructions
+from app.services.anthropic import ask_claude_stream
 from fastapi import HTTPException
 
 """
@@ -143,7 +145,34 @@ async def handle_polish_template(websocket_session_id: str, user_id: str, data: 
         This function is currently a placeholder for future implementation.
     """
     try:
-        pass
+        template = db.get_template(template_id=data["template_id"])
+        
+        message = get_template_instructions(template.get("instructions"))
+        
+        db.update_template(template_id=data["template_id"], status="GENERATING_TEMPLATE")
+        async def handle_response(response):
+            broadcast_message = {
+                "type": "template_generated",
+                "data": {
+                    "template_id": data["template_id"],
+                    "status": "GENERATING_TEMPLATE",
+                    "instructions": response
+                }
+            }
+            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
+        response = await ask_claude_stream(message, handle_response)
+        
+        template = db.update_template(template_id=data["template_id"], instructions=response, status="FINISHED")
+        broadcast_message = {
+            "type": "template_generated",
+            "data": {
+                "template_id": data["template_id"],
+                "status": "FINISHED",
+                "instructions": response,
+                "modified_at": template.get("modified_at")
+            }
+        }
+        await manager.broadcast(websocket_session_id, user_id, broadcast_message)
     except Exception as e:
         logger.error(f"Error polishing template: {e}")
         raise HTTPException(status_code=500, detail=str(e))
