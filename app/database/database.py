@@ -43,6 +43,7 @@ class database:
             self.users = self.database['users']
             self.templates = self.database['templates']
             self.visits = self.database['visits']
+            self.admins = self.database['admins']
         except Exception as e:
             logger.error(f"Database initialization error: {str(e)}")
             raise
@@ -768,6 +769,20 @@ class database:
         except Exception as e:
             logger.error(f"get_default_template error for template_id {template_id}: {str(e)}")
             return None
+    
+    def get_all_default_templates(self):
+        """
+        Retrieve all templates from the database with status 'DEFAULT'.
+        
+        Returns:
+            list: A list of template documents with status 'DEFAULT' and decrypted fields.
+        """
+        try:
+            templates = self.templates.find({'status': 'DEFAULT'})
+            return [self.decrypt_template(template) for template in templates]
+        except Exception as e:
+            logger.error(f"get_all_default_templates error: {str(e)}")
+            return []
 
     def update_daily_statistic(self, user_id, stat_type, value):
         """
@@ -806,5 +821,188 @@ class database:
                 )
         except Exception as e:
             logger.error(f"update_daily_statistic error for user_id {user_id}, stat_type {stat_type}, value {value}: {str(e)}")
+
+    def decrypt_admin(self, admin):
+        """
+        Decrypt and format an admin document from the database.
+        
+        Args:
+            admin (dict): The encrypted admin document from the database.
+            
+        Returns:
+            dict: The decrypted admin document with formatted fields, or None if error occurs.
+            
+        Note:
+            Converts ObjectIds to strings and decrypts sensitive fields.
+        """
+        try:
+            admin_copy = admin.copy()
+            admin_copy['admin_id'] = str(admin_copy['_id'])
+            admin_copy['created_at'] = str(admin_copy['created_at'])
+            admin_copy['modified_at'] = str(admin_copy['modified_at'])
+            admin_copy['name'] = decrypt(admin_copy['encrypt_name'])
+            admin_copy['email'] = decrypt(admin_copy['encrypt_email'])
+            admin_copy['master_note_generation_instructions'] = decrypt(admin_copy['encrypt_master_note_generation_instructions'])
+            admin_copy['master_template_polish_instructions'] = decrypt(admin_copy['encrypt_master_template_polish_instructions'])
+            del admin_copy['_id']
+            del admin_copy['encrypt_name']
+            del admin_copy['encrypt_email']
+            del admin_copy['hashed_password']
+            del admin_copy['encrypt_master_note_generation_instructions']
+            del admin_copy['encrypt_master_template_polish_instructions']
+            return admin_copy
+        except Exception as e:
+            logger.error(f"decrypt_admin error for admin_id {admin.get('_id', 'unknown')}: {str(e)}")
+            return None
+
+    def create_admin(self, name, email, password, master_note_generation_instructions='', master_template_polish_instructions=''):
+        """
+        Create a new admin in the database.
+        
+        Args:
+            name (str): The admin's name.
+            email (str): The admin's email address.
+            password (str): The admin's password.
+            master_note_generation_instructions (str, optional): Master instructions for note generation.
+            master_template_polish_instructions (str, optional): Master instructions for template polishing.
+            
+        Returns:
+            dict: The newly created admin document with decrypted fields, or None if creation failed.
+            
+        Note:
+            Checks for existing admins with the same email before creation.
+        """
+        try:
+            encrypted_email = encrypt(email)
+            all_admins = list(self.admins.find())
+            for admin in all_admins:
+                decrypted_email = decrypt(admin['encrypt_email'])
+                if decrypted_email == email:
+                    return None
+            admin = {
+                'created_at': datetime.utcnow(),
+                'modified_at': datetime.utcnow(),
+                'status': 'ADMIN',
+                'encrypt_name': encrypt(name),
+                'encrypt_email': encrypted_email,
+                'hashed_password': hash_password(password),
+                'encrypt_master_note_generation_instructions': encrypt(master_note_generation_instructions),
+                'encrypt_master_template_polish_instructions': encrypt(master_template_polish_instructions)
+            }
+            self.admins.insert_one(admin)
+            return self.decrypt_admin(admin)
+        except Exception as e:
+            logger.error(f"create_admin error for email {email}: {str(e)}")
+            return None
+
+    def update_admin(self, admin_id, master_note_generation_instructions=None, master_template_polish_instructions=None):
+        """
+        Update an admin's information in the database.
+        
+        Args:
+            admin_id (str): The ID of the admin to update.
+            name (str, optional): The admin's new name.
+            email (str, optional): The admin's new email address.
+            password (str, optional): The admin's new password.
+            status (str, optional): The admin's new status.
+            master_note_generation_instructions (str, optional): The admin's new master note generation instructions.
+            master_template_polish_instructions (str, optional): The admin's new master template polish instructions.
+            
+        Returns:
+            dict: The updated admin document with decrypted fields, or None if update failed.
+        """
+        try:
+            update_fields = {}
+            if master_note_generation_instructions is not None:
+                update_fields['encrypt_master_note_generation_instructions'] = encrypt(master_note_generation_instructions)
+            if master_template_polish_instructions is not None:
+                update_fields['encrypt_master_template_polish_instructions'] = encrypt(master_template_polish_instructions)
+            if update_fields:
+                update_fields['modified_at'] = datetime.utcnow()
+                self.admins.update_one({'_id': ObjectId(admin_id)}, {'$set': update_fields})
+            admin = self.admins.find_one({'_id': ObjectId(admin_id)})
+            return self.decrypt_admin(admin)
+        except Exception as e:
+            logger.error(f"update_admin error for admin_id {admin_id}: {str(e)}")
+            return None
+
+    def delete_admin(self, admin_id):
+        """
+        Delete an admin from the database.
+        
+        Args:
+            admin_id (str): The ID of the admin to delete.
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        try:
+            self.admins.delete_one({'_id': ObjectId(admin_id)})
+            return True
+        except Exception as e:
+            logger.error(f"delete_admin error for admin_id {admin_id}: {str(e)}")
+            return False
+
+    def get_admin(self, admin_id):
+        """
+        Retrieve an admin by their ID.
+        
+        Args:
+            admin_id (str): The ID of the admin to retrieve.
+            
+        Returns:
+            dict: The admin document with decrypted fields, or None if not found or error occurs.
+        """
+        try:
+            admin = self.admins.find_one({'_id': ObjectId(admin_id)})
+            return self.decrypt_admin(admin)
+        except Exception as e:
+            logger.error(f"get_admin error for admin_id {admin_id}: {str(e)}")
+            return None
+
+    def get_admin_by_email(self, email):
+        """
+        Retrieve an admin by their email address.
+        
+        Args:
+            email (str): The email address to search for.
+            
+        Returns:
+            dict: The admin document with decrypted fields, or None if not found or error occurs.
+        """
+        try:
+            all_admins = list(self.admins.find())
+            for admin in all_admins:
+                decrypted_email = decrypt(admin['encrypt_email'])
+                if decrypted_email == email:
+                    return self.decrypt_admin(admin)
+            return None
+        except Exception as e:
+            logger.error(f"get_admin_by_email error for email {email}: {str(e)}")
+            return None
+
+    def verify_admin(self, email, password):
+        """
+        Verify an admin's login credentials.
+        
+        Args:
+            email (str): The admin's email address.
+            password (str): The admin's password.
+            
+        Returns:
+            dict: The admin document with decrypted fields if credentials are valid, None otherwise.
+        """
+        try:
+            hashed_password = hash_password(password)
+            all_admins = list(self.admins.find())
+            for admin in all_admins:
+                decrypted_email = decrypt(admin['encrypt_email'])
+                if decrypted_email == email and admin['hashed_password'] == hashed_password:
+                    return self.decrypt_admin(admin)
+            return None
+        except Exception as e:
+            logger.error(f"verify_admin error for email {email}: {str(e)}")
+            return None
+
 
 db = database()

@@ -146,3 +146,65 @@ class WebSocketResponse(BaseModel):
     type: Literal["create_template", "update_template", "delete_template", "duplicate_template", "polish_template", "template_generated", "create_visit", "update_visit", "delete_visit", "note_generated", "generate_note", "update_user", "start_recording", "pause_recording", "resume_recording", "finish_recording", "transcribe_audio", "error"]
     data: dict
     was_requested: bool
+
+class AdminSigninRequest(BaseModel):
+    """
+    Request model for admin sign-in.
+    
+    Fields:
+        email (str): The admin's email address.
+        password (str): The admin's password.
+    
+    Note:
+        The admin is created automatically when the first admin signs up.
+    """
+    email: str
+    password: str
+
+class AdminSignupRequest(BaseModel):
+    """
+    Request model for admin sign-up.
+    
+    Fields:
+        name (str): The admin's name.
+        email (str): The admin's email address.
+        password (str): The admin's password.
+        master_note_generation_instructions (str, optional): The admin's master note generation instructions.
+        master_template_polish_instructions (str, optional): The admin's master template polish instructions.
+
+    Note:
+        The admin is created automatically when the first admin signs up.
+    """
+    name: str
+    email: str
+    password: str
+    master_note_generation_instructions: str = ""
+    master_template_polish_instructions: str = ""
+
+class GetAdminRequest(BaseModel):
+    """
+    Request model to retrieve an admin by ID.
+    
+    Fields:
+        admin_id (str): The ID of the admin to retrieve.
+
+    Note:
+        The admin is created automatically when the first admin signs up.
+    """
+    admin_id: str
+
+class UpdateAdminRequest(BaseModel):
+    """
+    Request model to update an admin's information.
+    
+    Fields:
+        admin_id (str): The ID of the admin to update.
+        master_note_generation_instructions (str, optional): The admin's master note generation instructions.
+        master_template_polish_instructions (str, optional): The admin's master template polish instructions.
+
+    Note:
+        The admin is created automatically when the first admin signs up.
+    """
+    admin_id: str
+    master_note_generation_instructions: str = None
+    master_template_polish_instructions: str = None
