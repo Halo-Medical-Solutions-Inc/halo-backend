@@ -87,7 +87,7 @@ async def handle_delete_template(websocket_session_id: str, user_id: str, data: 
         Broadcasts the deletion event to all connected clients for the user.
     """
     try:
-        db.delete_template(template_id=data["template_id"])
+        db.delete_template(template_id=data["template_id"], user_id=user_id)
         broadcast_message = {
             "type": "delete_template",
             "data": {
