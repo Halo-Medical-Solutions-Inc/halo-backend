@@ -735,12 +735,13 @@ class database:
             logger.error(f"create_default_template error for name {name}: {str(e)}")
             return None
 
-    def update_default_template(self, template_id, instructions, print='', header='', footer=''):
+    def update_default_template(self, template_id, name=None, instructions=None, print=None, header=None, footer=None):
         """
         Update a default template.
         
         Args:
             template_id (str): The ID of the default template to update.
+            name (str, optional): The template's new name.
             instructions (str): The new instructions for the template.
             print (str, optional): The template's new print format.
             header (str, optional): The template's new header.
@@ -751,6 +752,8 @@ class database:
         """
         try:
             update_fields = {}
+            if name is not None:
+                update_fields['encrypt_name'] = encrypt(name)
             if instructions is not None:
                 update_fields['encrypt_instructions'] = encrypt(instructions)
             if print is not None:
@@ -766,7 +769,7 @@ class database:
             return self.decrypt_template(template)
         except Exception as e:
             logger.error(f"update_default_template error for template_id {template_id}: {str(e)}")
-            
+
     def delete_default_template(self, template_id):
         """
         Delete a default template and remove it from all users' template lists.

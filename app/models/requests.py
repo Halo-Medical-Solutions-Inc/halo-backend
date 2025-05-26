@@ -79,14 +79,24 @@ class CreateDefaultTemplateRequest(BaseModel):
     name: str
     instructions: str
 
-class GetDefaultTemplateRequest(BaseModel):
+class UpdateDefaultTemplateRequest(BaseModel):
     """
-    Request model to retrieve a default template by ID.
+    Request model to update a default template.
     
     Fields:
-        template_id (str): The ID of the default template to retrieve.
+        template_id (str): The ID of the default template to update.
+        name (str, optional): The template's new name.
+        instructions (str): The new instructions for the template.
+        print (str, optional): The template's new print format.
+        header (str, optional): The template's new header.
+        footer (str, optional): The template's new footer.
     """
     template_id: str
+    name: str = None
+    instructions: str
+    print: str = None
+    header: str = None
+    footer: str = None
 
 class DeleteDefaultTemplateRequest(BaseModel):
     """
@@ -94,6 +104,15 @@ class DeleteDefaultTemplateRequest(BaseModel):
     
     Fields:
         template_id (str): The ID of the default template to delete.
+    """
+    template_id: str
+
+class GetDefaultTemplateRequest(BaseModel):
+    """
+    Request model to retrieve a default template by ID.
+    
+    Fields:
+        template_id (str): The ID of the default template to retrieve.
     """
     template_id: str
 

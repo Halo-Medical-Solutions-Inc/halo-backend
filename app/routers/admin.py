@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.database.database import db
-from app.models.requests import CreateDefaultTemplateRequest, DeleteDefaultTemplateRequest, GetDefaultTemplateRequest, DeleteAllVisitsForUserRequest, GetUserStatsRequest, AdminSigninRequest, AdminSignupRequest, GetAdminRequest, UpdateAdminRequest
+from app.models.requests import CreateDefaultTemplateRequest, DeleteDefaultTemplateRequest, GetDefaultTemplateRequest, DeleteAllVisitsForUserRequest, GetUserStatsRequest, AdminSigninRequest, AdminSignupRequest, GetAdminRequest, UpdateAdminRequest, UpdateDefaultTemplateRequest
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -191,6 +191,23 @@ async def create_default_template(request: CreateDefaultTemplateRequest):
         dict: The created template.
     """
     template = db.create_default_template(name=request.name, instructions=request.instructions)
+    return template
+
+@router.post("/update_default_template")
+async def update_default_template(request: UpdateDefaultTemplateRequest):
+    """
+    Update a default template.
+
+    This endpoint allows the admin to update a default template by specifying its ID and new instructions.
+
+    Args:
+        template_id (str): The ID of the default template to update.
+        instructions (str): The new instructions for the template.
+
+    Returns:
+        dict: The updated template.
+    """
+    template = db.update_default_template(template_id=request.template_id, name=request.name, instructions=request.instructions, print=request.print, header=request.header, footer=request.footer)
     return template
 
 @router.post("/delete_default_template")
