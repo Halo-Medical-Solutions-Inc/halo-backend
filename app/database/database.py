@@ -734,7 +734,39 @@ class database:
         except Exception as e:
             logger.error(f"create_default_template error for name {name}: {str(e)}")
             return None
+
+    def update_default_template(self, template_id, instructions, print='', header='', footer=''):
+        """
+        Update a default template.
         
+        Args:
+            template_id (str): The ID of the default template to update.
+            instructions (str): The new instructions for the template.
+            print (str, optional): The template's new print format.
+            header (str, optional): The template's new header.
+            footer (str, optional): The template's new footer.
+
+        Returns:
+            dict: The updated template document with decrypted fields, or None if update failed.
+        """
+        try:
+            update_fields = {}
+            if instructions is not None:
+                update_fields['encrypt_instructions'] = encrypt(instructions)
+            if print is not None:
+                update_fields['encrypt_print'] = encrypt(print)
+            if header is not None:
+                update_fields['encrypt_header'] = encrypt(header)
+            if footer is not None:
+                update_fields['encrypt_footer'] = encrypt(footer)
+            if update_fields:
+                update_fields['modified_at'] = datetime.utcnow()
+                self.templates.update_one({'_id': ObjectId(template_id)}, {'$set': update_fields})
+            template = self.templates.find_one({'_id': ObjectId(template_id)})
+            return self.decrypt_template(template)
+        except Exception as e:
+            logger.error(f"update_default_template error for template_id {template_id}: {str(e)}")
+            
     def delete_default_template(self, template_id):
         """
         Delete a default template and remove it from all users' template lists.
