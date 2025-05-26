@@ -978,19 +978,24 @@ class database:
             logger.error(f"delete_admin error for admin_id {admin_id}: {str(e)}")
             return False
 
-    def get_admin(self, admin_id):
+    def get_admin(self, admin_id=None):
         """
-        Retrieve an admin by their ID.
+        Retrieve the admin. Since there's only one admin in the system, 
+        this method will return the first admin found if no ID is provided.
         
         Args:
-            admin_id (str): The ID of the admin to retrieve.
+            admin_id (str, optional): The ID of the admin to retrieve.
             
         Returns:
             dict: The admin document with decrypted fields, or None if not found or error occurs.
         """
         try:
-            admin = self.admins.find_one({'_id': ObjectId(admin_id)})
-            return self.decrypt_admin(admin)
+            if admin_id:
+                admin = self.admins.find_one({'_id': ObjectId(admin_id)})
+            else:
+                admin = self.admins.find_one()
+            
+            return self.decrypt_admin(admin) if admin else None
         except Exception as e:
             logger.error(f"get_admin error for admin_id {admin_id}: {str(e)}")
             return None

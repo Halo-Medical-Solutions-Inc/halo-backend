@@ -145,9 +145,10 @@ async def handle_polish_template(websocket_session_id: str, user_id: str, data: 
         This function is currently a placeholder for future implementation.
     """
     try:
+        admin = db.get_admin()
         template = db.get_template(template_id=data["template_id"])
         
-        message = get_template_instructions(template.get("instructions"))
+        message = get_template_instructions(admin.get("master_template_polish_instructions"), template.get("instructions"))
         
         db.update_template(template_id=data["template_id"], status="GENERATING_TEMPLATE")
         async def handle_response(response):

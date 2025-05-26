@@ -122,12 +122,13 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
         5. Updates the visit with the completed note and changes status to "FINISHED"
     """
     try:
+        admin = db.get_admin()
         user = db.get_user(user_id=user_id)
         visit = db.get_visit(visit_id=data["visit_id"])
         template = db.get_template(template_id=visit.get("template_id"))
 
-        message = get_instructions(visit.get("transcript"), visit.get("additional_context"), template.get("instructions"), user.get("user_specialty"))
-        
+        message = get_instructions(admin.get("master_note_generation_instructions"), visit.get("transcript"), visit.get("additional_context"), template.get("instructions"), user.get("user_specialty"), user.get("name"))
+
         db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
         async def handle_response(response):
             broadcast_message = {
