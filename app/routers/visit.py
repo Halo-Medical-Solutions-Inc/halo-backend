@@ -6,6 +6,8 @@ from app.services.prompts import get_instructions
 from app.services.anthropic import ask_claude_stream
 from datetime import datetime
 from fastapi import APIRouter
+import asyncio
+import re
 
 """
 Visit Router for managing visits.
@@ -101,7 +103,6 @@ async def handle_delete_visit(websocket_session_id: str, user_id: str, data: dic
     except Exception as e:
         logger.error(f"Error deleting visit: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 async def handle_generate_note(websocket_session_id: str, user_id: str, data: dict):
     """
     Generate a note for a visit using Claude AI and broadcast updates.
@@ -126,35 +127,112 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
         user = db.get_user(user_id=user_id)
         visit = db.get_visit(visit_id=data["visit_id"])
         template = db.get_template(template_id=visit.get("template_id"))
-
-        message = get_instructions(admin.get("master_note_generation_instructions"), visit.get("transcript"), visit.get("additional_context"), template.get("instructions"), user.get("user_specialty"), user.get("name"))
-
+        sections = parse_sections(template.get("instructions"))
+        
         db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
-        async def handle_response(response):
-            broadcast_message = {
-                "type": "note_generated",
-                "data": {
-                    "visit_id": data["visit_id"],
-                    "status": "GENERATING_NOTE",
-                    "note": response
-                }
-            }
-            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
-        response = await ask_claude_stream(message, handle_response)
-
+        section_responses = {}
+        response_lock = asyncio.Lock()
+        
+        async def handle_section_response(section_name, response):
+            async with response_lock:
+                section_responses[section_name] = response
+                combined_note = ""
+                for section in sections:
+                    if section['name'] in section_responses:
+                        if section['name']:
+                            combined_note += f"{section['name']}\n{section_responses[section['name']]}\n\n"
+                        else:
+                            combined_note += f"{section_responses[section['name']]}\n\n"
+                
+                await manager.broadcast(websocket_session_id, user_id, {
+                    "type": "note_generated",
+                    "data": {
+                        "visit_id": data["visit_id"],
+                        "status": "GENERATING_NOTE",
+                        "note": combined_note.strip()
+                    }
+                })
+        
+        tasks = []
+        for section in sections:
+            section_message = get_instructions(
+                admin.get("master_note_generation_instructions"),
+                visit.get("transcript"),
+                visit.get("additional_context"),
+                section['content'],
+                user.get("user_specialty"),
+                user.get("name")
+            )
+            tasks.append(generate_section(section['name'], section_message, handle_section_response))
+        await asyncio.gather(*tasks)
+        
+        final_note = ""
+        for section in sections:
+            if section['name'] in section_responses:
+                if section['name']:
+                    final_note += f"{section['name']}\n{section_responses[section['name']]}\n\n"
+                else:
+                    final_note += f"{section_responses[section['name']]}\n\n"
+        
+        final_note = final_note.strip()
         template_modified_at = str(datetime.utcnow())
-        db.update_visit(visit_id=data["visit_id"], note=response, status="FINISHED", template_modified_at=template_modified_at)
-        broadcast_message = {
+        db.update_visit(visit_id=data["visit_id"], note=final_note, status="FINISHED", template_modified_at=template_modified_at)
+        
+        await manager.broadcast(websocket_session_id, user_id, {
             "type": "note_generated",
             "data": {
                 "visit_id": data["visit_id"],
                 "status": "FINISHED",
-                "note": response,
+                "note": final_note,
                 "template_modified_at": template_modified_at
             }
-        }
-        await manager.broadcast(websocket_session_id, user_id, broadcast_message)
+        })
 
     except Exception as e:
         logger.error(f"Error generating note: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def parse_sections(template_instructions):
+    """
+    Parse sections from template instructions.
+    Sections are identified by text surrounded by ##.
+    
+    Args:
+        template_instructions (str): The template instructions containing sections.
+        
+    Returns:
+        list: A list of dictionaries containing section name and content.
+    """
+    sections = []
+    pattern = r'##([^#]+)##'
+    matches = list(re.finditer(pattern, template_instructions))
+    
+    if not matches:
+        sections.append({'name': '','content': template_instructions.strip()})
+        return sections
+    
+    for i, match in enumerate(matches):
+        section_name = match.group(1).strip()
+        start_pos = match.end()
+        end_pos = matches[i + 1].start() if i < len(matches) - 1 else len(template_instructions)
+        section_content = template_instructions[start_pos:end_pos].strip()
+        sections.append({
+            'name': section_name,
+            'content': section_content
+        })
+    
+    return sections
+
+async def generate_section(section_name, message, callback):
+    """
+    Generate a single section using Claude AI.
+    
+    Args:
+        section_name (str): The name of the section being generated.
+        message (str): The message to send to Claude.
+        callback (function): Callback function to handle the response.
+    """
+    return await ask_claude_stream(
+        message,
+        lambda text: callback(section_name, text)
+    )
