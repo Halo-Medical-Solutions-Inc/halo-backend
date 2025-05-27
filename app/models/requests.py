@@ -124,6 +124,7 @@ class GetVisitsRequest(BaseModel):
         session_id (str): The active session identifier.
     """
     session_id: str
+    subset: bool = False
 
 class DeleteAllVisitsForUserRequest(BaseModel):
     """
