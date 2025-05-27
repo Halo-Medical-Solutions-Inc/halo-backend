@@ -103,6 +103,7 @@ async def handle_delete_visit(websocket_session_id: str, user_id: str, data: dic
     except Exception as e:
         logger.error(f"Error deleting visit: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+        
 async def handle_generate_note(websocket_session_id: str, user_id: str, data: dict):
     """
     Generate a note for a visit using Claude AI and broadcast updates.
