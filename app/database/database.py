@@ -364,12 +364,14 @@ class database:
             logger.error(f"get_user_templates error for user_id {user_id}: {str(e)}")
             return []
     
-    def get_user_visits(self, user_id):
+    def get_user_visits(self, user_id, subset=False):
         """
-        Retrieve all visits associated with a user.
+        Retrieve visits associated with a user.
         
         Args:
             user_id (str): The ID of the user.
+            subset (bool, optional): If True, returns a subset of visits based on date criteria.
+                                    If False, returns all visits. Defaults to False.
             
         Returns:
             list: A list of visit documents with decrypted fields, or empty list if error occurs.
@@ -377,12 +379,22 @@ class database:
         try:
             user = self.get_user(user_id)
             visit_ids = [ObjectId(vid) for vid in user['visit_ids']]
-            visits = list(self.visits.find({'_id': {'$in': visit_ids}}))
-            return [self.decrypt_visit(visit) for visit in visits]
+            if not subset:
+                return [self.decrypt_visit(visit) for visit in self.visits.find({'_id': {'$in': visit_ids}})]
+            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            query = {
+                '_id': {'$in': visit_ids},
+                'created_at': {'$gte': today, '$lt': today + timedelta(days=1)}
+            }
+            today_visits = list(self.visits.find(query).sort('created_at', -1))
+            if len(today_visits) >= 10:
+                return [self.decrypt_visit(visit) for visit in today_visits]
+            return [self.decrypt_visit(visit) for visit in 
+                   self.visits.find({'_id': {'$in': visit_ids}}).sort('created_at', -1).limit(10)]
         except Exception as e:
             logger.error(f"get_user_visits error for user_id {user_id}: {str(e)}")
             return []
-        
+
     def decrypt_template(self, template):
         """
         Decrypt and format a template document from the database.
