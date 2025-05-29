@@ -135,11 +135,7 @@ def get_visits(request: GetVisitsRequest):
     """
     user_id = db.is_session_valid(request.session_id)
     if user_id:
-        print(request.subset)
-        start_time = time.time()
         visits = db.get_user_visits(user_id, request.subset)
-        end_time = time.time()
-        print(f"Time taken: {end_time - start_time} seconds")
         return visits
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
