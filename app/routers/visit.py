@@ -141,7 +141,7 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
                 for section in sections:
                     if section['name'] in section_responses:
                         if section['name']:
-                            combined_note += f"{section['name']}\n{section_responses[section['name']]}\n\n"
+                            combined_note += f"**{section['name']}**\n{section_responses[section['name']]}\n\n"
                         else:
                             combined_note += f"{section_responses[section['name']]}\n\n"
                 
@@ -171,7 +171,7 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
         for section in sections:
             if section['name'] in section_responses:
                 if section['name']:
-                    final_note += f"{section['name']}\n{section_responses[section['name']]}\n\n"
+                    final_note += f"**{section['name']}**\n{section_responses[section['name']]}\n\n"
                 else:
                     final_note += f"{section_responses[section['name']]}\n\n"
         
