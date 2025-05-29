@@ -2,50 +2,42 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.anthropic import ask_claude_stream
 import json
 import logging
-from typing import Dict, Set
-import asyncio
 
 """
 WebSocket Chat Router for the Halo Application.
 
 This module provides real-time chat functionality through WebSocket connections.
-It manages active WebSocket sessions, handles message streaming from Claude AI,
-and provides error handling for connection management.
+It handles message streaming from Claude AI and provides error handling for
+connection management.
 
 Key features:
-- WebSocket session management with concurrent connection handling
+- WebSocket connection handling with support for multiple concurrent connections
 - Real-time streaming responses from Claude AI
 - JSON message formatting for client communication
-- Automatic cleanup of disconnected sessions
 - Error handling and logging for chat operations
 
-The router maintains a global dictionary of active sessions to ensure
-only one connection per session ID and proper resource cleanup.
+The router allows multiple WebSocket connections simultaneously, with each
+connection being independently managed.
 """
 
 router = APIRouter()
 
-active_sessions: Dict[str, WebSocket] = {}
-session_lock = asyncio.Lock()
-
-@router.websocket("/ws/{session_id}")
-async def chat_websocket(websocket: WebSocket, session_id: str):
+@router.websocket("/ws")
+async def chat_websocket(websocket: WebSocket):
     """
     Handle WebSocket connections for real-time chat functionality.
     
-    This endpoint manages WebSocket connections for chat sessions, ensuring only
-    one active connection per session ID. It processes incoming messages,
-    streams responses from Claude AI, and handles connection lifecycle.
+    This endpoint manages WebSocket connections for chat sessions. It processes
+    incoming messages, streams responses from Claude AI, and handles connection
+    lifecycle. Multiple connections can be active simultaneously.
     
     Args:
         websocket (WebSocket): The WebSocket connection instance.
-        session_id (str): Unique identifier for the chat session.
         
     Note:
-        - Automatically closes existing connections for the same session_id
+        - Supports multiple concurrent connections
         - Streams responses in real-time using Claude AI
         - Handles JSON message parsing and error responses
-        - Cleans up session tracking on disconnection
         
     Message Format:
         Incoming: {"message": "user message text"}
@@ -58,16 +50,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
         WebSocketDisconnect: When the client disconnects from the WebSocket.
         Exception: For any other errors during message processing.
     """
-    async with session_lock:
-        if session_id in active_sessions:
-            existing_ws = active_sessions[session_id]
-            try:
-                await existing_ws.close()
-            except:
-                pass
-            
-        await websocket.accept()
-        active_sessions[session_id] = websocket
+    await websocket.accept()
     
     try:
         while True:
@@ -94,12 +77,8 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logging.error(f"WebSocket error for session {session_id}: {str(e)}")
+        logging.error(f"WebSocket error: {str(e)}")
         try:
             await websocket.send_text(json.dumps({"type": "error", "message": f"WebSocket error: {str(e)}"}))
         except:
             pass
-    finally:
-        async with session_lock:
-            if session_id in active_sessions and active_sessions[session_id] == websocket:
-                del active_sessions[session_id]
