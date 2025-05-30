@@ -595,7 +595,7 @@ class database:
                 'created_at': datetime.utcnow(),
                 'modified_at': datetime.utcnow(),
                 'status': 'NOT_STARTED',
-                'encrypt_name': encrypt('New Visit'),
+                'encrypt_name': encrypt(''),
                 'template_modified_at': datetime.utcnow(),
                 'template_id': user['default_template_id'],
                 'language': user['default_language'],
