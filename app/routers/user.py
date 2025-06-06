@@ -9,7 +9,7 @@ from app.routers.audio import handle_start_recording, handle_pause_recording, ha
 from app.services.logging import logger
 import asyncio
 import uuid
-import time
+from datetime import datetime
 
 """
 User Router for managing user operations.
@@ -188,6 +188,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         Handles different message types and routes them to appropriate handlers.
         Manages connection lifecycle including cleanup on disconnect.
     """
+    active_recordings = []
+
+    
     user_id = db.is_session_valid(session_id)
     if not user_id: 
         await websocket.close(code=1008, reason="Invalid session")
@@ -202,11 +205,42 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             if db.is_session_valid(message.session_id) is None: 
                 await websocket.close(code=1008, reason="Invalid session")
                 return
+            
+            try:
+                if message.type == 'start_recording':
+                    active_recordings.append(message.data['visit_id'])
+                elif message.type == 'pause_recording':
+                    active_recordings.remove(message.data['visit_id'])
+                elif message.type == 'resume_recording':
+                    active_recordings.append(message.data['visit_id'])
+                elif message.type == 'finish_recording':
+                    active_recordings.remove(message.data['visit_id'])
+            except:
+                pass
+
             asyncio.create_task(process_message(websocket_session_id, user_id, message))
         
     except WebSocketDisconnect:
+        for visit_id in active_recordings:
+            old_visit = db.get_visit(visit_id)
+            old_duration = int(old_visit["recording_duration"] if old_visit["recording_duration"] else 0)
+            if old_visit.get("recording_started_at"):
+                time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
+                new_duration = old_duration + time_diff
+            else:
+                new_duration = old_duration
+            visit = db.update_visit(visit_id, status="PAUSED", recording_duration=str(new_duration))
+            broadcast_message = {
+                "type": "pause_recording",
+                "data": {
+                    "visit_id": visit_id,
+                    "status": "PAUSED",
+                    "modified_at": visit["modified_at"],
+                    "recording_duration": visit["recording_duration"]
+                }
+            }
+            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
         await manager.disconnect(websocket, websocket_session_id, user_id)
-
     except Exception as e:
         logger.error(f"Error in websocket: {e}")
         await websocket.close(code=1011, reason=str(e))
