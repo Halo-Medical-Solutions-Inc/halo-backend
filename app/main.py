@@ -26,7 +26,7 @@ app.add_middleware(
         "http://localhost:3000",
         "https://www.halohealth.app",
         "https://scribe.halohealth.app",
-        "https://halo-frontend-test.up.railway.app"
+        "https://halo-frontend-test.up.railway.app",
     ], 
     allow_credentials=True,
     allow_methods=["*"], 
