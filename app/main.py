@@ -22,7 +22,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=[
+        "http://localhost:3000",
+        "https://www.halohealth.app",
+        "https://scribe.halohealth.app",
+        "https://halo-frontend-test.up.railway.app"
+    ], 
     allow_credentials=True,
     allow_methods=["*"], 
     allow_headers=["*"],  
