@@ -201,7 +201,7 @@ class database:
                     return None
             default_templates = list(self.templates.find({'status': 'DEFAULT'}))
             default_template_ids = [template['_id'] for template in default_templates]
-            default_template_id = str(default_templates[0]['_id']) if default_templates else ''
+            default_template_id = str(default_templates[-1]['_id']) if default_templates else ''
             user = {
                 'created_at': datetime.utcnow(),
                 'modified_at': datetime.utcnow(),
