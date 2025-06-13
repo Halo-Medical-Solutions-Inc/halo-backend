@@ -129,6 +129,18 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
         visit = db.get_visit(visit_id=data["visit_id"])
         template = db.get_template(template_id=visit.get("template_id"))
         sections = parse_sections(template.get("instructions"))
+
+        if len(visit.get("transcript").split()) < 10:
+            db.update_visit(visit_id=data["visit_id"], status="FINISHED", note="Insufficient transcript, please record again.")
+            await manager.broadcast(websocket_session_id, user_id, {
+                "type": "note_generated",
+                "data": {
+                    "visit_id": data["visit_id"],
+                    "status": "FINISHED",
+                    "note": "Insufficient transcript, please record again."
+                }
+            })
+            return
         
         db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
         section_responses = {}
