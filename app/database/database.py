@@ -4,6 +4,7 @@ from bson import ObjectId
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from app.services.logging import logger
+import json
 
 """
 MongoDB Database Handler for the Halo Application.
@@ -167,6 +168,13 @@ class database:
             user_copy['email'] = decrypt(user_copy['encrypt_email'])
             user_copy['created_at'] = str(user_copy['created_at'])
             user_copy['modified_at'] = str(user_copy['modified_at'])
+            if 'emr_integration' in user_copy and user_copy['emr_integration']:
+                emr_integration = user_copy['emr_integration']
+                if 'encrypt_credentials' in emr_integration:
+                    decrypted_credentials = decrypt(emr_integration['encrypt_credentials'])
+                    emr_integration['credentials'] = json.loads(decrypted_credentials) if decrypted_credentials else {}
+                    del emr_integration['encrypt_credentials']
+                user_copy['emr_integration'] = emr_integration
             del user_copy['_id']
             del user_copy['encrypt_name']
             del user_copy['encrypt_email']
@@ -214,7 +222,8 @@ class database:
                 'default_language': 'en',
                 'template_ids': default_template_ids,
                 'visit_ids': [],
-                'daily_statistics': {}
+                'daily_statistics': {},
+                'emr_integration': {}
             }
             self.users.insert_one(user)
             return self.decrypt_user(user)
@@ -222,7 +231,7 @@ class database:
             logger.error(f"create_user error for email {email}: {str(e)}")
             return None
         
-    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None):
+    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None, emr_integration=None):
         """
         Update a user's information in the database.
         
@@ -236,6 +245,7 @@ class database:
             default_language (str, optional): The user's default language.
             template_ids (list, optional): List of template IDs associated with the user.
             visit_ids (list, optional): List of visit IDs associated with the user.
+            emr_integration (dict, optional): EMR integration configuration with credentials.
             
         Returns:
             dict: The updated user document with decrypted fields, or None if update failed.
@@ -258,6 +268,13 @@ class database:
                 update_fields['template_ids'] = template_ids
             if visit_ids is not None:
                 update_fields['visit_ids'] = visit_ids
+            if emr_integration is not None:
+                emr_integration_copy = emr_integration.copy()
+                if 'credentials' in emr_integration_copy:
+                    credentials_json = json.dumps(emr_integration_copy['credentials'])
+                    emr_integration_copy['encrypt_credentials'] = encrypt(credentials_json)
+                    del emr_integration_copy['credentials']
+                update_fields['emr_integration'] = emr_integration_copy
             if update_fields:
                 update_fields['modified_at'] = datetime.utcnow()
                 self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})

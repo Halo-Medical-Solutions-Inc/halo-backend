@@ -228,3 +228,29 @@ class UpdateAdminRequest(BaseModel):
     admin_id: str
     master_note_generation_instructions: str = None
     master_template_polish_instructions: str = None
+
+class VerifyEMRIntegrationRequest(BaseModel):
+    """
+    Request model to verify EMR integration for a user.
+    
+    Fields:
+        session_id (str): The active session identifier.
+        emr_name (str): The name of the EMR system (e.g., "OFFICE_ALLY", "ADVANCEMD").
+        credentials (dict): The credentials required for the specific EMR system.
+                           For OFFICE_ALLY: {"username": str, "password": str}
+    """
+    session_id: str
+    emr_name: Literal["OFFICE_ALLY", "ADVANCEMD"]
+    credentials: dict
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "session_id": "session_123",
+                "emr_name": "OFFICE_ALLY",
+                "credentials": {
+                    "username": "john.doe@example.com",
+                    "password": "secure_password"
+                }
+            }
+        }

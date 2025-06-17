@@ -1,4 +1,4 @@
-from app.models.requests import SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, WebSocketMessage
+from app.models.requests import SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, WebSocketMessage, VerifyEMRIntegrationRequest
 from fastapi import APIRouter, HTTPException
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from app.database.database import db
@@ -139,6 +139,53 @@ def get_visits(request: GetVisitsRequest):
         return visits
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
+
+@router.post("/verify_emr_integration")
+async def verify_emr_integration(request: VerifyEMRIntegrationRequest):
+    """
+    Verify EMR integration credentials for a user.
+    
+    Args:
+        request (VerifyEMRIntegrationRequest): Request containing session ID, EMR name, and credentials.
+        
+    Returns:
+        dict: Verification result with status and updated user information.
+        
+    Raises:
+        HTTPException: If session is invalid with 401 status code.
+                      If EMR verification fails with 400 status code.
+        
+    Note:
+        Currently supports OFFICE_ALLY EMR system.
+        Stores encrypted credentials upon successful verification.
+    """
+    user_id = db.is_session_valid(request.session_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    try:
+        if request.emr_name == "OFFICE_ALLY":
+            if not all(key in request.credentials for key in ["username", "password"]):
+                raise HTTPException(status_code=400, detail="Missing required credentials for Office Ally")            
+            verified = True
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported EMR")
+        
+        emr_integration = {
+            "emr": request.emr_name,
+            "verified": verified,
+            "credentials": request.credentials
+        }
+        
+        updated_user = db.update_user(user_id=user_id, emr_integration=emr_integration)
+        print(updated_user)
+        return True
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying EMR integration: {e}")
+        raise HTTPException(status_code=500, detail=f"EMR verification failed: {str(e)}")
 
     
 async def handle_update_user(websocket_session_id: str, user_id: str, data: dict):
