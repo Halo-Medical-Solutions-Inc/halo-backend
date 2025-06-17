@@ -10,6 +10,7 @@ from app.services.logging import logger
 import asyncio
 import uuid
 from datetime import datetime
+from app.integrations import officeally
 
 """
 User Router for managing user operations.
@@ -166,23 +167,22 @@ async def verify_emr_integration(request: VerifyEMRIntegrationRequest):
     try:
         if request.emr_name == "OFFICE_ALLY":
             if not all(key in request.credentials for key in ["username", "password"]):
-                raise HTTPException(status_code=400, detail="Missing required credentials for Office Ally")            
-            verified = True
+                logger.error(f"Missing required credentials for Office Ally")
+                raise HTTPException(status_code=400, detail="Missing required credentials for Office Ally")        
+            verified = officeally.verify_credentials(request.credentials["username"], request.credentials["password"])
+
         else:
+            logger.error(f"Unsupported EMR: {request.emr_name}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
         
         emr_integration = {
             "emr": request.emr_name,
             "verified": verified,
-            "credentials": request.credentials
+            "credentials": request.credentials if verified else {}
         }
-        
         updated_user = db.update_user(user_id=user_id, emr_integration=emr_integration)
-        print(updated_user)
-        return True
-            
-    except HTTPException:
-        raise
+        return updated_user
+       
     except Exception as e:
         logger.error(f"Error verifying EMR integration: {e}")
         raise HTTPException(status_code=500, detail=f"EMR verification failed: {str(e)}")
