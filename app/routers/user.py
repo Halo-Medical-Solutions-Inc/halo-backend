@@ -166,17 +166,14 @@ async def verify_emr_integration(request: VerifyEMRIntegrationRequest):
     
     try:
         if request.emr_name == "OFFICE_ALLY":
-            #Step 1: Check if the credentials are valid
             if not all(key in request.credentials for key in ["username", "password"]):
                 logger.error(f"Missing required credentials for Office Ally")
                 raise HTTPException(status_code=400, detail="Missing required credentials for Office Ally")        
 
-            #Step 2: Verify the credentials
             verified = officeally.verify_credentials(request.credentials["username"], request.credentials["password"])
 
-            #Step 3: Create the template
             if verified:
-                template = db.create_template(user_id=user_id, name="Office Ally", status="OFFICE_ALLY", instructions=officeally.get_officeally_instructions())
+                template = db.create_template(user_id=user_id, name="Office Ally", status="EMR", instructions=officeally.get_officeally_instructions())
                 broadcast_message = {
                     "type": "create_template",
                     "data": template
