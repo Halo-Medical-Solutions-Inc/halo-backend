@@ -447,7 +447,7 @@ class database:
             logger.error(f"decrypt_template error for template_id {template.get('_id', 'unknown')}: {str(e)}")
             return None
     
-    def create_template(self, user_id):
+    def create_template(self, user_id, status="READY", name="New Template", instructions=""):
         """
         Create a new template for a user.
         
@@ -466,9 +466,9 @@ class database:
                 'user_id': user_id,
                 'created_at': datetime.utcnow(),
                 'modified_at': datetime.utcnow(),
-                'status': 'READY',
-                'encrypt_name': encrypt('New Template'),
-                'encrypt_instructions': encrypt(''),
+                'status': status,
+                'encrypt_name': encrypt(name),
+                'encrypt_instructions': encrypt(instructions),
                 'encrypt_print': encrypt(''),
                 'encrypt_header': encrypt(''),
                 'encrypt_footer': encrypt(''),

@@ -166,23 +166,43 @@ async def verify_emr_integration(request: VerifyEMRIntegrationRequest):
     
     try:
         if request.emr_name == "OFFICE_ALLY":
+            #Step 1: Check if the credentials are valid
             if not all(key in request.credentials for key in ["username", "password"]):
                 logger.error(f"Missing required credentials for Office Ally")
                 raise HTTPException(status_code=400, detail="Missing required credentials for Office Ally")        
+
+            #Step 2: Verify the credentials
             verified = officeally.verify_credentials(request.credentials["username"], request.credentials["password"])
+
+            #Step 3: Create the template
+            if verified:
+                template = db.create_template(user_id=user_id, name="Office Ally", status="OFFICE_ALLY", instructions=officeally.get_officeally_instructions())
+                broadcast_message = {
+                    "type": "create_template",
+                    "data": template
+                }
+                await manager.broadcast('', user_id, broadcast_message)
+
+            emr_integration = {
+                "emr": request.emr_name,
+                "verified": verified,
+                "credentials": request.credentials if verified else {}
+            }
+            updated_user = db.update_user(user_id=user_id, emr_integration=emr_integration)
+            broadcast_message = {
+                "type": "update_user",
+                "data": {
+                    "user_id": user_id,
+                    "emr_integration": updated_user["emr_integration"]
+                }
+            }
+            await manager.broadcast('', user_id, broadcast_message)
+            return updated_user
 
         else:
             logger.error(f"Unsupported EMR: {request.emr_name}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
         
-        emr_integration = {
-            "emr": request.emr_name,
-            "verified": verified,
-            "credentials": request.credentials if verified else {}
-        }
-        updated_user = db.update_user(user_id=user_id, emr_integration=emr_integration)
-        return updated_user
-       
     except Exception as e:
         logger.error(f"Error verifying EMR integration: {e}")
         raise HTTPException(status_code=500, detail=f"EMR verification failed: {str(e)}")
