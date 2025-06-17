@@ -83,7 +83,7 @@ class database:
             dict: The newly created session document, or None if creation failed.
             
         Note:
-            Session expiration is set to 1 day from creation.
+            Session expiration is set to 1 minute from creation.
         """
         try:
             session = {'user_id': user_id, 'expiration_date': datetime.utcnow() + timedelta(days=1)}
