@@ -3,11 +3,13 @@ from app.services.connection import manager
 from app.services.logging import logger
 from fastapi import HTTPException
 from app.services.prompts import get_instructions
-from app.services.anthropic import ask_claude_stream
+from app.services.anthropic import ask_claude_stream, ask_claude_json
 from datetime import datetime
 from fastapi import APIRouter
 import asyncio
 import re
+from app.integrations import officeally
+
 
 """
 Visit Router for managing visits.
@@ -129,6 +131,31 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
         visit = db.get_visit(visit_id=data["visit_id"])
         template = db.get_template(template_id=visit.get("template_id"))
         sections = parse_sections(template.get("instructions"))
+
+        if template.get("status") == "EMR":
+            db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
+            await manager.broadcast(websocket_session_id, user_id, {
+                "type": "note_generated",
+                "data": {
+                    "visit_id": data["visit_id"],
+                    "status": "GENERATING_NOTE"
+                }
+            })
+            json_schema = ""
+            if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
+                json_schema = officeally.OFFICEALLY_JSON_SCHEMA
+            response = await ask_claude_json(template.get("instructions"), json_schema)
+            visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", note=response, template_modified_at=str(datetime.utcnow()))
+            await manager.broadcast(websocket_session_id, user_id, {
+                "type": "note_generated",
+                "data": {
+                    "visit_id": data["visit_id"],
+                    "status": "FINISHED",
+                    "note": response,
+                    "template_modified_at": visit.get("template_modified_at")
+                }
+            })
+            return
 
         if (len(visit.get("transcript").split()) + len(visit.get("additional_context").split())) < 10:
             db.update_visit(visit_id=data["visit_id"], status="FINISHED", note="Insufficient transcript, please record again.")

@@ -1,4 +1,4 @@
-from app.models.requests import SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, WebSocketMessage, VerifyEMRIntegrationRequest
+from app.models.requests import SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, WebSocketMessage, VerifyEMRIntegrationRequest, GetPatientsEMRIntegrationRequest, CreateNoteEMRIntegrationRequest
 from fastapi import APIRouter, HTTPException
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from app.database.database import db
@@ -173,7 +173,7 @@ async def verify_emr_integration(request: VerifyEMRIntegrationRequest):
             verified = officeally.verify_credentials(request.credentials["username"], request.credentials["password"])
 
             if verified:
-                template = db.create_template(user_id=user_id, name="Office Ally", status="EMR", instructions=officeally.get_officeally_instructions())
+                template = db.create_template(user_id=user_id, name="Office Ally", status="EMR", instructions=officeally.OFFICEALLY_INSTRUCTIONS)
                 broadcast_message = {
                     "type": "create_template",
                     "data": template
@@ -204,7 +204,42 @@ async def verify_emr_integration(request: VerifyEMRIntegrationRequest):
         logger.error(f"Error verifying EMR integration: {e}")
         raise HTTPException(status_code=500, detail=f"EMR verification failed: {str(e)}")
 
+@router.post("/get_patients_emr_integration")
+async def get_patients_emr_integration(request: GetPatientsEMRIntegrationRequest):
+    """
+    Get patients from EMR integration.
+    """
+    user_id = db.is_session_valid(request.session_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
     
+    try:
+        user = db.get_user(user_id)
+        if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
+            patients = officeally.get_patients(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"))
+            return patients
+    except Exception as e:
+        logger.error(f"Error getting patients from EMR integration: {e}")
+        raise HTTPException(status_code=500, detail=f"EMR integration failed: {str(e)}")
+
+
+@router.post("/create_note_emr_integration")
+async def create_note_emr_integration(request: CreateNoteEMRIntegrationRequest):
+    """
+    Create a note in the EMR integration.
+    """
+    user_id = db.is_session_valid(request.session_id)
+    if not user_id: 
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    try:
+        user = db.get_user(user_id)
+        if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
+            officeally.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), request.patient_id, request.payload)
+    except Exception as e:
+        logger.error(f"Error creating note in EMR integration: {e}")
+        raise HTTPException(status_code=500, detail=f"EMR integration failed: {str(e)}")
+
 async def handle_update_user(websocket_session_id: str, user_id: str, data: dict):
     """
     Update a user's profile information and broadcast the update event.

@@ -53,3 +53,34 @@ async def ask_claude(message):
         messages=[{"role": "user", "content": message}]
     )
     return response.content[0].text
+
+
+async def ask_claude_json(message, json_schema, callback = None, model=MODEL, max_tokens=MAX_TOKENS):
+    """
+    Asks the Anthropic API for a JSON response.
+
+    Args:
+        message (str): The message to send to the API.
+        
+    Returns:
+        dict: The JSON response from the API.
+    """
+    message = f"""
+    {message}
+
+    {json_schema}
+
+    RETURN ONLY IN JSON FORMAT. FOLLOW THE JSON SCHEMA PROVIDED AS CLOSELY AS POSSIBLE.
+    """
+    full_text = ""
+    async with anthropic_client.messages.stream(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": message}, {"role": "assistant", "content": "{"}]
+    ) as stream:
+        async for text in stream.text_stream:
+            print(text)
+            full_text += text
+            if callback:
+                await callback(full_text)
+    return "{" + full_text
