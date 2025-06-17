@@ -189,7 +189,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         Manages connection lifecycle including cleanup on disconnect.
     """
     active_recordings = []
-
     
     user_id = db.is_session_valid(session_id)
     if not user_id: 
@@ -202,10 +201,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     try:
         while True:
             message = WebSocketMessage(**await websocket.receive_json())
-            if db.is_session_valid(message.session_id) is None: 
+            if db.is_session_valid(message.session_id) is None and len(active_recordings) == 0: 
                 await websocket.close(code=1008, reason="Invalid session")
                 return
-            
+
+            asyncio.create_task(process_message(websocket_session_id, user_id, message))
+
             try:
                 if message.type == 'start_recording':
                     active_recordings.append(message.data['visit_id'])
@@ -217,8 +218,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     active_recordings.remove(message.data['visit_id'])
             except:
                 pass
-
-            asyncio.create_task(process_message(websocket_session_id, user_id, message))
         
     except WebSocketDisconnect:
         for visit_id in active_recordings:
