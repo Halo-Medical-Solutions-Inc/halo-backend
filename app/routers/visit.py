@@ -163,7 +163,15 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
                 raise HTTPException(status_code=400, detail="Unsupported EMR")
                 return
 
-            visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", note=await ask_claude_json(template.get("instructions"), JSON_SCHEMA), template_modified_at=str(datetime.utcnow()))
+            instructions = get_instructions(
+                admin.get("master_note_generation_instructions"),
+                visit.get("transcript"),
+                visit.get("additional_context"),
+                template.get("instructions"),
+                user.get("user_specialty"),
+                user.get("name")
+            )
+            visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", note=await ask_claude_json(instructions, JSON_SCHEMA), template_modified_at=str(datetime.utcnow()))
             broadcast_message = {
                 "type": "note_generated",
                 "data": {

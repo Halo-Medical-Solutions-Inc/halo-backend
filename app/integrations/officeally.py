@@ -190,7 +190,7 @@ def get_patients(username: str, password: str, target_date: Optional[str] = None
         print(f"Error getting patients: {str(e)}")
         return []
 
-def create_note(username: str, password: str, patient_id: str, note: str) -> bool:
+def create_note(username: str, password: str, patient_id: str, payload: Dict) -> bool:
     """
     Create a progress note for a patient.
     
@@ -198,7 +198,12 @@ def create_note(username: str, password: str, patient_id: str, note: str) -> boo
         username: Office Ally username
         password: Office Ally password
         patient_id: Patient ID
-        note: The note content as a string
+        payload: Dictionary containing all progress note data including:
+            - diagnosis_codes: List of diagnosis codes with 'code' and 'description'
+            - procedure_codes: List of procedure codes with 'code', 'description', 'pos', 'fee', 'units'
+            - vital_signs: Dictionary of vital signs
+            - soap_notes: Dictionary containing all SOAP note fields
+            - encounter_details: Dictionary with encounter date, provider, office, and type
     
     Returns:
         True if note created successfully, False otherwise
@@ -212,15 +217,6 @@ def create_note(username: str, password: str, patient_id: str, note: str) -> boo
         if response.status_code != 200:
             raise Exception(f"Failed to add credentials: {response.text}")
         
-        # For now, we'll create a simple note structure
-        # In the future, this could be enhanced to parse the note content and extract structured data
-        note_payload = {
-            "patient_id": patient_id,
-            "diagnosis_codes": [],
-            "procedure_codes": [],
-            "vital_signs": {},
-            "soap_notes": {
-                "ChiefComplaint": "Generated note",
         note_payload = {"patient_id": patient_id, **{k: payload.get(k, {} if k in ["vital_signs", "soap_notes", "encounter_details"] else []) 
                        for k in ["diagnosis_codes", "procedure_codes", "vital_signs", "soap_notes", "encounter_details"]}}
         
