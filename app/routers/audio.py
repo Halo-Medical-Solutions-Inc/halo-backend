@@ -510,7 +510,6 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         Includes complete transcript in the broadcast for immediate access.
     """
     try:
-        print("Finishing recording")
         recording_finished_at = str(datetime.utcnow())
         old_visit = db.get_visit(data["visit_id"])
         old_duration = int(old_visit.get("recording_duration") or 0)
@@ -520,7 +519,6 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         else:
             new_duration = old_duration
         visit = db.update_visit(data["visit_id"], status="FINISHED", recording_finished_at=recording_finished_at, recording_duration=str(new_duration))
-        print("Visit updated")
         broadcast_message = {
             "type": "finish_recording",
             "data": {
@@ -532,11 +530,8 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
                 "recording_duration": visit["recording_duration"]
             }
         }
-        print("Broadcasting message")
         await manager.broadcast(websocket_session_id, user_id, broadcast_message)
-        print("Message broadcasted")
         asyncio.create_task(handle_generate_note(websocket_session_id, user_id, data))
-        print("Note generation task created")
     except Exception as e:
         logger.error(f"Error in finishing recording: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
