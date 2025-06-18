@@ -142,6 +142,38 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
             })
             return
         
+        if template.get("status") == "EMR":
+            db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
+            broadcast_message = {
+                "type": "note_generated",
+                "data": {
+                    "visit_id": data["visit_id"],
+                    "status": "GENERATING_NOTE"
+                }
+            }
+            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
+
+            JSON_SCHEMA = ""
+            if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
+                JSON_SCHEMA = officeally.JSON_SCHEMA
+            else:
+                logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
+                raise HTTPException(status_code=400, detail="Unsupported EMR")
+                return
+
+            visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", note=await ask_claude_json(template.get("instructions"), JSON_SCHEMA), template_modified_at=str(datetime.utcnow()))
+            broadcast_message = {
+                "type": "note_generated",
+                "data": {
+                    "visit_id": data["visit_id"],
+                    "status": "FINISHED",
+                    "note": visit.get("note"),
+                    "template_modified_at": visit.get("template_modified_at")
+                }
+            }
+            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
+            return
+        
         db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
         section_responses = {}
         response_lock = asyncio.Lock()

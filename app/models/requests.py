@@ -228,3 +228,51 @@ class UpdateAdminRequest(BaseModel):
     admin_id: str
     master_note_generation_instructions: str = None
     master_template_polish_instructions: str = None
+
+class VerifyEMRIntegrationRequest(BaseModel):
+    """
+    Request model to verify EMR integration for a user.
+    
+    Fields:
+        session_id (str): The active session identifier.
+        emr (str): The name of the EMR system (e.g., "OFFICE_ALLY", "ADVANCEMD").
+        credentials (dict): The credentials required for the specific EMR system.
+                           For OFFICE_ALLY: {"username": str, "password": str}
+    """
+    session_id: str
+    emr: Literal["OFFICE_ALLY", "ADVANCEMD"]
+    credentials: dict
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "session_id": "session_123",
+                "emr": "OFFICE_ALLY",
+                "credentials": {
+                    "username": "john.doe@example.com",
+                    "password": "secure_password"
+                }
+            }
+        }
+
+class GetPatientsEMRIntegrationRequest(BaseModel):
+    """
+    Request model to get patients from EMR integration.
+    
+    Fields:
+        session_id (str): The active session identifier.
+    """
+    session_id: str
+
+class CreateNoteEMRIntegrationRequest(BaseModel):
+    """
+    Request model to create a note in the EMR integration.
+    
+    Fields:
+        session_id (str): The active session identifier.
+        patient_id (str): The ID of the patient to create a note for.
+        payload (dict): The payload to create a note for.
+    """
+    session_id: str
+    patient_id: str
+    payload: dict
