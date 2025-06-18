@@ -27,6 +27,8 @@ app.add_middleware(
         "https://www.halohealth.app",
         "https://scribe.halohealth.app",
         "https://halo-frontend-test.up.railway.app",
+        "https://preview--halo-admin-dashboard.lovable.app",
+        "https://lovable.dev",
     ], 
     allow_credentials=True,
     allow_methods=["*"], 
