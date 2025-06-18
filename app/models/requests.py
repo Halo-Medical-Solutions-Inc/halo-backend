@@ -271,8 +271,7 @@ class CreateNoteEMRIntegrationRequest(BaseModel):
     Fields:
         session_id (str): The active session identifier.
         patient_id (str): The ID of the patient to create a note for.
-        payload (dict): The payload to create a note for.
     """
     session_id: str
     patient_id: str
-    payload: dict
+    visit_id: str

@@ -3,11 +3,13 @@ from app.services.connection import manager
 from app.services.logging import logger
 from fastapi import HTTPException
 from app.services.prompts import get_instructions
-from app.services.anthropic import ask_claude_stream
+from app.services.anthropic import ask_claude_stream, ask_claude_json
 from datetime import datetime
 from fastapi import APIRouter
 import asyncio
 import re
+from app.integrations import officeally
+
 
 """
 Visit Router for managing visits.

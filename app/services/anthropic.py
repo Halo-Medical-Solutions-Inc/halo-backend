@@ -78,7 +78,6 @@ async def ask_claude_json(message, json_schema, callback = None, model=MODEL, ma
         messages=[{"role": "user", "content": message}, {"role": "assistant", "content": "{"}]
     ) as stream:
         async for text in stream.text_stream:
-            print(text)
             full_text += text
             if callback:
                 await callback(full_text)
