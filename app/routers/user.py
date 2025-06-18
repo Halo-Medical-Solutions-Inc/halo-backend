@@ -140,7 +140,6 @@ def get_visits(request: GetVisitsRequest):
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
 
-    
 async def handle_update_user(websocket_session_id: str, user_id: str, data: dict):
     """
     Update a user's profile information and broadcast the update event.

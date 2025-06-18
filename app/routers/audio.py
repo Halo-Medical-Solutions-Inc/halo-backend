@@ -6,11 +6,14 @@ import os
 import time
 import certifi
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions, FileSource
 from app.config import settings
 from app.services.connection import manager
 from app.routers.visit import handle_generate_note
+import PyPDF2
+import docx
+import chardet
 
 """
 Audio Processing and Real-time Transcription Module for the Halo Application.
@@ -507,7 +510,6 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         Includes complete transcript in the broadcast for immediate access.
     """
     try:
-        print("Finishing recording")
         recording_finished_at = str(datetime.utcnow())
         old_visit = db.get_visit(data["visit_id"])
         old_duration = int(old_visit.get("recording_duration") or 0)
@@ -517,7 +519,6 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         else:
             new_duration = old_duration
         visit = db.update_visit(data["visit_id"], status="FINISHED", recording_finished_at=recording_finished_at, recording_duration=str(new_duration))
-        print("Visit updated")
         broadcast_message = {
             "type": "finish_recording",
             "data": {
@@ -529,11 +530,66 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
                 "recording_duration": visit["recording_duration"]
             }
         }
-        print("Broadcasting message")
         await manager.broadcast(websocket_session_id, user_id, broadcast_message)
-        print("Message broadcasted")
         asyncio.create_task(handle_generate_note(websocket_session_id, user_id, data))
-        print("Note generation task created")
     except Exception as e:
         logger.error(f"Error in finishing recording: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/process_file")
+async def process_file(file: UploadFile = File(...)):
+    """
+    Process any type of file and return its text content.
+    
+    Args:
+        file (UploadFile): The uploaded file to process.
+        
+    Returns:
+        str: The extracted text content from the file.
+        
+    Raises:
+        HTTPException: If file processing fails.
+        
+    Note:
+        - Audio files (.mp3, .wav) are transcribed using Deepgram
+        - PDF files are extracted using PyPDF2
+        - Word documents (.docx) are extracted using python-docx
+        - Text files are read directly with encoding detection
+        - Other file types return an error
+    """
+    try:
+        file_content = await file.read()
+        file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
+        
+        if file_extension in ['mp3', 'wav', 'm4a']:
+            deepgram = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
+            payload: FileSource = {"buffer": file_content}
+            options = PrerecordedOptions(model="nova-3", smart_format=True)
+            response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
+            return response.results.channels[0].alternatives[0].transcript
+        
+        elif file_extension == 'pdf':
+            import io
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+            return "\n".join(page.extract_text() for page in pdf_reader.pages).strip()
+        
+        elif file_extension == 'docx':
+            import io
+            doc = docx.Document(io.BytesIO(file_content))
+            return "\n".join(paragraph.text for paragraph in doc.paragraphs)
+        
+        elif file_extension in ['txt', 'md', 'csv', 'log']:
+            detected = chardet.detect(file_content)
+            encoding = detected['encoding'] or 'utf-8'
+            return file_content.decode(encoding)
+        
+        else:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Unsupported file type: {file_extension}. Supported types: mp3, wav, pdf, docx, txt, md, csv, log"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing {file_extension} file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process {file_extension}: {str(e)}")
