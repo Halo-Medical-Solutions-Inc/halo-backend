@@ -46,3 +46,6 @@ typing_extensions==4.13.2
 uvicorn==0.34.1
 websockets==15.0.1
 yarl==1.19.0
+PyPDF2
+python-docx
+chardet
