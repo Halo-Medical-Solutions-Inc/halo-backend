@@ -64,7 +64,7 @@ async def ask_claude_json(message, json_schema, callback = None, model=MODEL, ma
     Returns:
         dict: The JSON response from the API.
     """
-    message = f"""
+    message2 = f"""
     {message}
 
     {json_schema}
@@ -75,7 +75,7 @@ async def ask_claude_json(message, json_schema, callback = None, model=MODEL, ma
     async with anthropic_client.messages.stream(
         model=model,
         max_tokens=max_tokens,
-        messages=[{"role": "user", "content": message}, {"role": "assistant", "content": "{"}]
+        messages=[{"role": "user", "content": message2}, {"role": "assistant", "content": "{"}]
     ) as stream:
         async for text in stream.text_stream:
             full_text += text
