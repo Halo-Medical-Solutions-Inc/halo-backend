@@ -54,7 +54,7 @@ async def ask_claude(message):
     )
     return response.content[0].text
 
-async def ask_claude_json(message, json_schema, callback = None, model=MODEL, max_tokens=MAX_TOKENS):
+async def ask_claude_json(message, json_schema, callback = None, model=MODEL, max_tokens=64000):
     """
     Asks the Anthropic API for a JSON response.
 
