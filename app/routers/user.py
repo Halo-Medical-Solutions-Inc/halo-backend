@@ -219,6 +219,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 pass
         
     except WebSocketDisconnect:
+        print("DISCONNECTED")
         for visit_id in active_recordings:
             old_visit = db.get_visit(visit_id)
             old_duration = int(old_visit["recording_duration"] if old_visit["recording_duration"] else 0)
@@ -240,6 +241,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             await manager.broadcast(websocket_session_id, user_id, broadcast_message)
         await manager.disconnect(websocket, websocket_session_id, user_id)
     except Exception as e:
+        print("ERROR", e)
         logger.error(f"Error in websocket: {e}")
         await websocket.close(code=1011, reason=str(e))
 
