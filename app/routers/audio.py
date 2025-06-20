@@ -7,7 +7,17 @@ import time
 import certifi
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions, FileSource
+import assemblyai as aai
+from assemblyai.streaming.v3 import (
+    BeginEvent,
+    StreamingClient,
+    StreamingClientOptions,
+    StreamingError,
+    StreamingEvents,
+    StreamingParameters,
+    TerminationEvent,
+    TurnEvent,
+)
 from app.config import settings
 from app.services.connection import manager
 from app.routers.visit import handle_generate_note
@@ -18,12 +28,12 @@ import chardet
 """
 Audio Processing and Real-time Transcription Module for the Halo Application.
 
-This module provides real-time audio transcription capabilities using Deepgram's API.
+This module provides real-time audio transcription capabilities using AssemblyAI's API.
 It handles WebSocket connections for live audio streaming, transcription processing,
 and recording state management.
 
 Key features:
-- Real-time audio transcription using Deepgram
+- Real-time audio transcription using AssemblyAI
 - WebSocket-based audio streaming
 - Automatic reconnection and error handling
 - Recording state management (start, pause, resume, finish)
@@ -38,25 +48,24 @@ router = APIRouter()
 
 class Transcriber:
     """
-    Real-time audio transcription handler using Deepgram's Live API.
+    Real-time audio transcription handler using AssemblyAI's Streaming API.
     
-    This class manages the connection to Deepgram's transcription service,
+    This class manages the connection to AssemblyAI's transcription service,
     handles audio data streaming, processes transcription results, and manages
-    connection stability through automatic reconnection and keep-alive mechanisms.
+    connection stability through automatic reconnection.
     
     Features:
-    - Real-time audio transcription with speaker diarization
+    - Real-time audio transcription with turn detection
     - Automatic reconnection on connection failures
-    - Keep-alive mechanism to maintain stable connections
     - Transcript formatting and storage
     - Error handling and logging
     """
     def __init__(self, api_key: str, visit_id: str):
         """
-        Initialize the Transcriber with Deepgram API credentials and visit information.
+        Initialize the Transcriber with AssemblyAI API credentials and visit information.
         
         Args:
-            api_key (str): The Deepgram API key for authentication.
+            api_key (str): The AssemblyAI API key for authentication.
             visit_id (str): The ID of the visit this transcription session belongs to.
             
         Note:
@@ -65,69 +74,68 @@ class Transcriber:
         """
         self.api_key = api_key
         self.visit_id = visit_id
-        self.connection = None
         self.client = None
-        self.last_audio_time = time.time()
-        self.keep_alive_task = None
-        self.is_finals = []
         self.loop = asyncio.get_event_loop()
         self.is_connected = False
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5
         self.reconnect_delay = 1
         self.reconnecting = False
+        self.running_transcript = ""
         
         os.environ['SSL_CERT_FILE'] = certifi.where()
         os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
         
     async def connect(self):
         """
-        Establish connection to Deepgram's Live API with configured options.
+        Establish connection to AssemblyAI's Streaming API with configured options.
         
         Sets up the WebSocket connection with transcription options including:
-        - Nova-3 model for high accuracy
-        - Multi-language support
-        - Smart formatting and punctuation
-        - Speaker diarization
-        - Linear16 encoding at 16kHz
+        - 16kHz sample rate
+        - PCM16 encoding
+        - Turn formatting enabled
         
         Raises:
-            Exception: If connection to Deepgram fails, triggers automatic reconnection.
-            
-        Note:
-            Automatically starts the keep-alive task upon successful connection.
+            Exception: If connection to AssemblyAI fails, triggers automatic reconnection.
         """
         try:
             await self._cleanup_connection()
-            self.client = DeepgramClient(self.api_key)
-            self.connection = self.client.listen.websocket.v("1")
-            self.connection.on(LiveTranscriptionEvents.Transcript, self._on_transcript)
-            self.connection.on(LiveTranscriptionEvents.Error, self._on_error)
-            self.connection.on(LiveTranscriptionEvents.UtteranceEnd, self._on_utterance_end)
-            options = LiveOptions(
-                model="nova-3",
-                language="multi",
-                smart_format=True,
-                encoding="linear16",
-                punctuate=True,
-                diarize=True,
-                channels=1,
-                sample_rate=16000
+            
+            self.client = StreamingClient(
+                StreamingClientOptions(
+                    api_key=settings.ASSEMBLY_API_KEY,
+                    api_host="streaming.assemblyai.com",
+                )
             )
-            self.connection.start(options, addons={"no_delay": "true"})
+            
+            self.client.on(StreamingEvents.Begin, self._on_begin)
+            self.client.on(StreamingEvents.Turn, self._on_turn)
+            self.client.on(StreamingEvents.Termination, self._on_terminated)
+            self.client.on(StreamingEvents.Error, self._on_error)
+            
+            self.client.connect(
+                StreamingParameters(
+                    sample_rate=16000,
+                    format_turns=True,
+                    encoding="pcm_s16le",
+                    end_of_turn_confidence_threshold=0.7,
+                    min_end_of_turn_silence_when_confident=160,
+                    max_turn_silence=2400
+                )
+            )
+            
             self.is_connected = True
             self.reconnect_attempts = 0
             self.reconnect_delay = 1
-            if not self.keep_alive_task or self.keep_alive_task.cancelled():
-                self.keep_alive_task = asyncio.create_task(self._keep_alive())            
+            
         except Exception as e:
-            logger.error(f"Failed to connect to Deepgram: {str(e)}")
+            logger.error(f"Failed to connect to AssemblyAI: {str(e)}")
             self.is_connected = False
             await self._attempt_reconnect()
             
     async def _cleanup_connection(self):
         """
-        Clean up and close the current Deepgram connection.
+        Clean up and close the current AssemblyAI connection.
         
         Safely terminates the connection and resets connection state.
         This method is called before establishing new connections or during shutdown.
@@ -136,19 +144,17 @@ class Transcriber:
             Handles exceptions during cleanup to prevent cascading errors.
         """
         self.is_connected = False
-        if self.connection:
-            try:
-                self.connection.finish()
-            except Exception as e:
-                logger.debug(f"Error finishing connection: {e}")
-            finally:
-                self.connection = None
         if self.client:
-            self.client = None
+            try:
+                self.client.disconnect(terminate=True)
+            except Exception as e:
+                logger.debug(f"Error disconnecting: {e}")
+            finally:
+                self.client = None
             
     async def _attempt_reconnect(self): 
         """
-        Attempt to reconnect to Deepgram with exponential backoff.
+        Attempt to reconnect to AssemblyAI with exponential backoff.
         
         Implements a retry mechanism with increasing delays between attempts.
         Stops attempting after reaching the maximum number of reconnection attempts.
@@ -161,7 +167,6 @@ class Transcriber:
             return
         self.reconnecting = True
         self.reconnect_attempts += 1
-        logger.info(f"Attempting to reconnect to Deepgram (attempt {self.reconnect_attempts}/{self.max_reconnect_attempts})")
         try:
             await asyncio.sleep(self.reconnect_delay)
             self.reconnect_delay = min(self.reconnect_delay * 2, 30)
@@ -172,36 +177,44 @@ class Transcriber:
             self.reconnecting = False
             
         if self.reconnect_attempts >= self.max_reconnect_attempts:
-            logger.error(f"Failed to reconnect to Deepgram after {self.max_reconnect_attempts} attempts")
-        
-    def _on_transcript(self, connection, result, **kwargs):
+            logger.error(f"Failed to reconnect to AssemblyAI after {self.max_reconnect_attempts} attempts")
+    
+    def _on_begin(self, client: StreamingClient, event: BeginEvent):
         """
-        Handle incoming transcription results from Deepgram.
-        
-        Processes real-time transcription data, collecting interim results
-        and storing final transcripts when speech segments are complete.
+        Handle session begin event from AssemblyAI.
         
         Args:
-            connection: The Deepgram connection object.
-            result: The transcription result containing transcript data and metadata.
-            **kwargs: Additional keyword arguments from the Deepgram callback.
+            client (StreamingClient): The StreamingClient instance.
+            event (BeginEvent): The session begin event containing session ID.
+        """
+        pass
+    
+    def _on_turn(self, client: StreamingClient, event: TurnEvent):
+        """
+        Handle incoming transcription turns from AssemblyAI.
+        
+        Processes real-time transcription data, handling both unformatted
+        and formatted transcripts. Stores complete turns when detected.
+        
+        Args:
+            client (StreamingClient): The StreamingClient instance.
+            event (TurnEvent): The turn event containing transcript data and metadata.
             
         Note:
-            Only processes results that contain valid transcript data.
-            Collects interim results until a final speech segment is detected.
+            Only stores formatted transcripts to avoid duplicates.
+            Accumulates running transcript for voice agent use cases.
         """
-        if not result.channel or not result.channel.alternatives: return   
-        transcript = result.channel.alternatives[0].transcript
-        if not transcript: return
-        if result.is_final:
-            self.is_finals.append(transcript)
-            if getattr(result, "speech_final", False):
-                utterance = " ".join(self.is_finals)
-                self.is_finals = []
-                asyncio.run_coroutine_threadsafe(
-                    self._store_transcript(utterance, datetime.utcnow().isoformat()),
-                    self.loop
-                )
+        if not event.transcript:
+            return
+            
+        if event.end_of_turn and event.turn_is_formatted:
+            asyncio.run_coroutine_threadsafe(
+                self._store_transcript(event.transcript, datetime.utcnow().isoformat()),
+                self.loop
+            )
+        
+        if event.end_of_turn and not event.turn_is_formatted:
+            self.running_transcript = event.transcript
     
     async def _store_transcript(self, transcript_text, timestamp):
         """
@@ -219,24 +232,24 @@ class Transcriber:
             current_transcript = db.get_visit(self.visit_id)["transcript"]
             timestamp_formatted = datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
             new_transcript = f"[{timestamp_formatted}] {transcript_text}"
-            if current_transcript: new_transcript = f"{current_transcript}\n{new_transcript}"
+            if current_transcript: 
+                new_transcript = f"{current_transcript}\n{new_transcript}"
             db.update_visit(self.visit_id, transcript=new_transcript)
         except Exception as e:
             logger.error(f"Error storing transcript: {str(e)}")
     
-    def _on_error(self, connection, error, **kwargs):
+    def _on_error(self, client: StreamingClient, error: StreamingError):
         """
-        Handle errors from the Deepgram connection.
+        Handle errors from the AssemblyAI connection.
         
         Args:
-            connection: The Deepgram connection object that encountered the error.
-            error: The error object containing error details.
-            **kwargs: Additional keyword arguments from the Deepgram callback.
+            client (StreamingClient): The StreamingClient instance.
+            error (StreamingError): The error object containing error details.
             
         Note:
             Logs the error and triggers automatic reconnection attempt.
         """
-        logger.error(f"Deepgram error: {error}")
+        logger.error(f"AssemblyAI error: {error}")
         self.is_connected = False
         
         asyncio.run_coroutine_threadsafe(
@@ -244,104 +257,47 @@ class Transcriber:
             self.loop
         )
         
-    def _on_utterance_end(self, connection, utterance_end, **kwargs):
+    def _on_terminated(self, client: StreamingClient, event: TerminationEvent):
         """
-        Handle utterance end events from Deepgram.
-        
-        Processes any remaining interim transcripts when an utterance ends,
-        ensuring no transcribed content is lost.
+        Handle session termination event from AssemblyAI.
         
         Args:
-            connection: The Deepgram connection object.
-            utterance_end: The utterance end event data.
-            **kwargs: Additional keyword arguments from the Deepgram callback.
-            
-        Note:
-            Stores any accumulated interim transcripts when utterance ends.
+            client (StreamingClient): The StreamingClient instance.
+            event (TerminationEvent): The termination event containing session summary.
         """
-        if self.is_finals:
-            utterance = " ".join(self.is_finals)
-            self.is_finals = []
-            asyncio.run_coroutine_threadsafe(
-                self._store_transcript(utterance, datetime.utcnow().isoformat()),
-                self.loop
-            )
+        self.is_connected = False
     
     async def send_audio(self, audio_data: bytes):
         """
-        Send audio data to Deepgram for real-time transcription.
+        Send audio data to AssemblyAI for real-time transcription.
         
         Args:
             audio_data (bytes): Raw audio data to be transcribed.
             
         Note:
-            Updates the last audio time for keep-alive tracking.
+            Audio must be PCM16 encoded at 16kHz sample rate.
             Triggers reconnection if the connection is not available.
         """
-        if self.connection and self.is_connected:
+        if self.client and self.is_connected:
             try:
-                self.connection.send(audio_data)
-                self.last_audio_time = time.time()
+                self.client.stream(audio_data)
             except Exception as e:
                 logger.error(f"Error sending audio data: {str(e)}")
                 self.is_connected = False
                 await self._attempt_reconnect()
         elif not self.is_connected and not self.reconnecting:
             await self._attempt_reconnect()
-    
-    async def _keep_alive(self):
-        """
-        Maintain the Deepgram connection with periodic silence packets.
-        
-        Sends silence data when no audio has been received for a period,
-        preventing the connection from timing out due to inactivity.
-        
-        Note:
-            Runs continuously until cancelled or an error occurs.
-            Sends silence packets every 2 seconds of audio inactivity.
-        """
-        while True:
-            try:
-                await asyncio.sleep(1)  
-                if time.time() - self.last_audio_time > 2: 
-                    silence = bytes(16)
-                    if self.connection and self.is_connected:
-                        try:
-                            self.connection.send(silence)
-                            self.last_audio_time = time.time()
-                        except Exception as e:
-                            logger.error(f"Error sending keep-alive: {str(e)}")
-                            self.is_connected = False
-                            await self._attempt_reconnect()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in keep-alive task: {str(e)}")
                     
     async def disconnect(self):
         """
-        Gracefully disconnect from Deepgram and clean up resources.
+        Gracefully disconnect from AssemblyAI and clean up resources.
         
-        Cancels the keep-alive task and closes the connection properly.
         This method should be called when transcription is no longer needed.
         
         Note:
-            Handles task cancellation exceptions gracefully.
             Logs successful disconnection for debugging purposes.
         """
-        if self.keep_alive_task:
-            self.keep_alive_task.cancel()
-            try:
-                await self.keep_alive_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                pass
-            finally:
-                self.keep_alive_task = None
-                
         await self._cleanup_connection()
-        logger.info(f"Disconnected from Deepgram for visit {self.visit_id}")
 
 @router.websocket("/ws/{visit_id}")
 async def transcribe(websocket: WebSocket, visit_id: str):
@@ -349,7 +305,7 @@ async def transcribe(websocket: WebSocket, visit_id: str):
     WebSocket endpoint for real-time audio transcription.
     
     Accepts WebSocket connections for streaming audio data to be transcribed
-    in real-time using Deepgram's API. Manages the transcription session
+    in real-time using AssemblyAI's API. Manages the transcription session
     lifecycle and handles connection cleanup.
     
     Args:
@@ -361,7 +317,7 @@ async def transcribe(websocket: WebSocket, visit_id: str):
         Automatically cleans up resources when the connection is closed.
     """
     await websocket.accept()
-    transcriber = Transcriber(settings.DEEPGRAM_API_KEY, visit_id)
+    transcriber = Transcriber(settings.ASSEMBLY_API_KEY, visit_id)
     try:
         await transcriber.connect()
         await websocket.send_json({"status": "ready"})
@@ -551,7 +507,7 @@ async def process_file(file: UploadFile = File(...)):
         HTTPException: If file processing fails.
         
     Note:
-        - Audio files (.mp3, .wav) are transcribed using Deepgram
+        - Audio files (.mp3, .wav) are transcribed using AssemblyAI
         - PDF files are extracted using PyPDF2
         - Word documents (.docx) are extracted using python-docx
         - Text files are read directly with encoding detection
@@ -562,11 +518,17 @@ async def process_file(file: UploadFile = File(...)):
         file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
         
         if file_extension in ['mp3', 'wav', 'm4a']:
-            deepgram = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
-            payload: FileSource = {"buffer": file_content}
-            options = PrerecordedOptions(model="nova-3", smart_format=True)
-            response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
-            return response.results.channels[0].alternatives[0].transcript
+            transcriber = aai.Transcriber()
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=f".{file_extension}", delete=False) as tmp_file:
+                tmp_file.write(file_content)
+                tmp_file_path = tmp_file.name
+            
+            try:
+                transcript = transcriber.transcribe(tmp_file_path)
+                return transcript.text
+            finally:
+                os.unlink(tmp_file_path)
         
         elif file_extension == 'pdf':
             import io

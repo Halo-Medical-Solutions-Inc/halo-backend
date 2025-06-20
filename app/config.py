@@ -13,11 +13,13 @@ class Settings(BaseSettings):
 
     MONGODB_URL: The MongoDB URL for the application.
     ANTHROPIC_API_KEY: The Anthropic API key for the application.
+    ASSEMBLY_API_KEY: The AssemblyAI API key for the application.
     DEEPGRAM_API_KEY: The Deepgram API key for the application.
     CIPHER: The cipher for the application.
     """
     MONGODB_URL: str
     ANTHROPIC_API_KEY: str
+    ASSEMBLY_API_KEY: str
     DEEPGRAM_API_KEY: str
     CIPHER: str
     class Config:
