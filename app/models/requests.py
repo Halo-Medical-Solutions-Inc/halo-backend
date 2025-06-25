@@ -238,6 +238,7 @@ class VerifyEMRIntegrationRequest(BaseModel):
         emr (str): The name of the EMR system (e.g., "OFFICE_ALLY", "ADVANCEMD").
         credentials (dict): The credentials required for the specific EMR system.
                            For OFFICE_ALLY: {"username": str, "password": str}
+                           For ADVANCEMD: {"username": str, "password": str, "office_key": str, "app_name": str}
     """
     session_id: str
     emr: Literal["OFFICE_ALLY", "ADVANCEMD"]
@@ -251,6 +252,12 @@ class VerifyEMRIntegrationRequest(BaseModel):
                 "credentials": {
                     "username": "john.doe@example.com",
                     "password": "secure_password"
+                },
+                "credentials": {
+                    "username": "john.doe@example.com",
+                    "password": "secure_password",
+                    "office_key": "1234567890",
+                    "app_name": "MyApp"
                 }
             }
         }

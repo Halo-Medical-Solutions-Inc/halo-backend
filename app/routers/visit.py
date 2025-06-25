@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter
 import asyncio
 import re
-from app.integrations import officeally
+from app.integrations import officeally, advancemd
 
 
 """
@@ -158,6 +158,8 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
             JSON_SCHEMA = ""
             if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
                 JSON_SCHEMA = officeally.JSON_SCHEMA
+            elif user.get("emr_integration").get("emr") == "ADVANCEMD":
+                JSON_SCHEMA = advancemd.JSON_SCHEMA
             else:
                 logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
                 raise HTTPException(status_code=400, detail="Unsupported EMR")

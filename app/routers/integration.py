@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from app.database.database import db
 from app.services.logging import logger
 from app.models.requests import VerifyEMRIntegrationRequest, GetPatientsEMRIntegrationRequest, CreateNoteEMRIntegrationRequest
-from app.integrations import officeally
+from app.integrations import officeally, advancemd
 from app.services.connection import manager
 import json
 
@@ -36,7 +36,8 @@ async def verify(request: VerifyEMRIntegrationRequest):
             verified = officeally.verify(request.credentials["username"], request.credentials["password"])
             instructions = officeally.INSTRUCTIONS
         elif request.emr == "ADVANCEMD":
-            pass
+            verified = advancemd.verify(request.credentials["username"], request.credentials["password"], request.credentials["office_key"], request.credentials["app_name"])
+            instructions = advancemd.INSTRUCTIONS
         else:
             logger.error(f"Unsupported EMR: {request.emr}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
@@ -81,7 +82,7 @@ async def get_patients(request: GetPatientsEMRIntegrationRequest):
         if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
             patients = officeally.get_patients(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"))
         elif user.get("emr_integration").get("emr") == "ADVANCEMD":
-            pass
+            patients = advancemd.get_patients(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"))
         else:
             logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")

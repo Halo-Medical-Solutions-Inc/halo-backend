@@ -173,7 +173,7 @@ def get_patients(username: str, password: str, target_date: Optional[str] = None
         else:
             raise Exception(f"Failed to fetch appointments: {response.text}")
     except Exception as e:
-        print(f"Error getting patients: {str(e)}")
+        logger.error(f"Error getting patients: {str(e)}")
         return []
 
 def create_note(username: str, password: str, patient_id: str, payload: Dict) -> bool:
@@ -211,10 +211,10 @@ def create_note(username: str, password: str, patient_id: str, payload: Dict) ->
                                json=note_payload)
         
         if response.status_code == 200:
-            print(f"Progress note created successfully: {response.json()}")
+            logger.info(f"Progress note created successfully: {response.json()}")
             return True
-        print(f"Failed to create progress note: {response.text}")
+        logger.error(f"Failed to create progress note: {response.text}")
         return False
     except Exception as e:
-        print(f"Error creating note: {str(e)}")
+        logger.error(f"Error creating note: {str(e)}")
         return False
