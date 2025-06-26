@@ -25,7 +25,7 @@ def get_instructions(prompt, transcript, additional_context, template_instructio
     """
     processed_prompt = prompt
     replacements = {
-        "{{today_date}}": datetime.utcnow().strftime("%Y-%m-%d"),
+        "{{today_date}}": datetime.utcnow().replace(tzinfo=datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=-8))).strftime("%Y-%m-%d"),
         "{{transcript}}": transcript,
         "{{additional_context}}": additional_context,
         "{{template_instructions}}": template_instructions,
