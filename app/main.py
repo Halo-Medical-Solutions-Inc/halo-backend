@@ -29,6 +29,7 @@ app.add_middleware(
         "https://halo-frontend-test.up.railway.app",
         "https://preview--halo-admin-dashboard.lovable.app",
         "https://lovable.dev",
+        "https://halo-admin-frontend-main.up.railway.app"
     ], 
     allow_credentials=True,
     allow_methods=["*"], 
