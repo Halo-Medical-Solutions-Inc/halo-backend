@@ -303,16 +303,15 @@ class Transcriber:
         while True:
             try:
                 await asyncio.sleep(1)  
-                if time.time() - self.last_audio_time > 2: 
-                    silence = bytes(16)
-                    if self.connection and self.is_connected:
-                        try:
-                            self.connection.send(silence)
-                            self.last_audio_time = time.time()
-                        except Exception as e:
-                            logger.error(f"Error sending keep-alive: {str(e)}")
-                            self.is_connected = False
-                            await self._attempt_reconnect()
+                silence = bytes(16)
+                if self.connection and self.is_connected:
+                    try:
+                        self.connection.send(silence)
+                        self.last_audio_time = time.time()
+                    except Exception as e:
+                        logger.error(f"Error sending keep-alive: {str(e)}")
+                        self.is_connected = False
+                        await self._attempt_reconnect()
             except asyncio.CancelledError:
                 break
             except Exception as e:
