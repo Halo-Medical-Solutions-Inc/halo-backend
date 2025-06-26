@@ -282,3 +282,25 @@ class CreateNoteEMRIntegrationRequest(BaseModel):
     session_id: str
     patient_id: str
     visit_id: str
+
+class AskRequest(BaseModel):
+    """
+    Request model to ask a question to the AI.
+    
+    Fields:
+        message (str): The question to ask the AI.
+    """
+    message: str
+
+class CreateVisitRequest(BaseModel):
+    """
+    Request model for creating a visit with specific parameters.
+    
+    Fields:
+        user_email (str): The email of the user for whom to create the visit.
+        visit_name (str): The name of the visit.
+        visit_additional_context (str): Additional context for the visit.
+    """
+    user_email: str
+    visit_name: str
+    visit_additional_context: str

@@ -37,7 +37,7 @@ async def ask_claude_stream(message, callback, model=MODEL, max_tokens=MAX_TOKEN
             await callback(full_text)
     return full_text
 
-async def ask_claude(message):
+async def ask_claude(message, model=MODEL, max_tokens=MAX_TOKENS):
     """
     Asks the Anthropic API for a response.
 
