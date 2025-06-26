@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 """
 Prompts Service for the Halo Application.
@@ -25,7 +26,7 @@ def get_instructions(prompt, transcript, additional_context, template_instructio
     """
     processed_prompt = prompt
     replacements = {
-        "{{today_date}}": datetime.now().strftime("%Y-%m-%d"),
+        "{{today_date}}": datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"),
         "{{transcript}}": transcript,
         "{{additional_context}}": additional_context,
         "{{template_instructions}}": template_instructions,
