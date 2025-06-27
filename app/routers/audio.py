@@ -7,12 +7,13 @@ import time
 import certifi
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions, FileSource
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions, FileSource, DeepgramClientOptions
 from app.config import settings
 from app.services.connection import manager
 from app.routers.visit import handle_generate_note
 import PyPDF2
 import docx
+import json
 import chardet
 
 """
@@ -99,7 +100,8 @@ class Transcriber:
         """
         try:
             await self._cleanup_connection()
-            self.client = DeepgramClient(self.api_key)
+            self.config = DeepgramClientOptions(options={"keepalive": True})
+            self.client = DeepgramClient(self.api_key, self.config)
             self.connection = self.client.listen.websocket.v("1")
             self.connection.on(LiveTranscriptionEvents.Transcript, self._on_transcript)
             self.connection.on(LiveTranscriptionEvents.Error, self._on_error)
@@ -303,16 +305,16 @@ class Transcriber:
         while True:
             try:
                 await asyncio.sleep(1)  
-                if time.time() - self.last_audio_time > 2: 
-                    silence = bytes(16)
-                    if self.connection and self.is_connected:
-                        try:
-                            self.connection.send(silence)
-                            self.last_audio_time = time.time()
-                        except Exception as e:
-                            logger.error(f"Error sending keep-alive: {str(e)}")
-                            self.is_connected = False
-                            await self._attempt_reconnect()
+                silence = bytes(16)
+                if self.connection and self.is_connected:
+                    try:
+                        self.connection.send(json.dumps({"type": "KeepAlive"}))
+                        self.connection.send(silence)
+                        self.last_audio_time = time.time()
+                    except Exception as e:
+                        logger.error(f"Error sending keep-alive: {str(e)}")
+                        self.is_connected = False
+                        await self._attempt_reconnect()
             except asyncio.CancelledError:
                 break
             except Exception as e:
