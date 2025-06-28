@@ -3,7 +3,7 @@ from app.services.connection import manager
 from app.services.logging import logger
 from fastapi import HTTPException
 from app.services.prompts import get_instructions
-from app.services.anthropic import ask_claude_stream, ask_claude_json
+from app.services.anthropic import ask_claude_stream, ask_claude_json, ask_claude
 from datetime import datetime
 from fastapi import APIRouter
 import asyncio
@@ -323,3 +323,36 @@ async def generate_section(section_name, message, callback):
         message,
         lambda text: callback(section_name, text)
     )
+
+async def handle_generate_visit_name(websocket_session_id: str, user_id: str, data: dict):
+    """
+    Handle automatic visit name generation based on the transcript.
+    
+    Generates a descriptive name for the visit if it doesn't already have one
+    or if it has a default name. Uses Claude to analyze the transcript and
+    create an appropriate name.
+    
+    Args:
+        websocket_session_id (str): The WebSocket session ID for broadcasting.
+        user_id (str): The ID of the user.
+        data (dict): Dictionary containing visit_id and other relevant data.
+        
+    Note:
+        Only generates a name if the current name is empty, None, or "New Visit".
+        Broadcasts the updated name to all connected clients.
+    """
+    try:
+        visit = db.get_visit(data["visit_id"])
+        if not visit.get("name") or visit.get("name") == "" or visit.get("name") == "New Visit":
+            name = await ask_claude(f"Generate a name for the visit based on the transcript: {visit.get('transcript')} and additional context: {visit.get('additional_context')}. The name should be a single word or phrase that captures the name of the patient that is coming in for the visit. If no patient name can be found in the transcript or additional context, return exactly 'New Visit'.")
+            db.update_visit(data["visit_id"], name=name)
+            broadcast_message = {
+                "type": "update_visit",
+                "data": {
+                    "visit_id": data["visit_id"],
+                    "name": name
+                }
+            }
+            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
+    except Exception as e:
+        logger.error(f"Error generating visit name: {str(e)}")
