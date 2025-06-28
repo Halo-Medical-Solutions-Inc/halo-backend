@@ -122,7 +122,7 @@ def get_visits(request: GetVisitsRequest):
     Retrieve visits for a user.
     
     Args:
-        request (GetVisitsRequest): Request containing session ID.
+        request (GetVisitsRequest): Request containing session ID and pagination params.
         
     Returns:
         list: List of visits associated with the user.
@@ -132,10 +132,11 @@ def get_visits(request: GetVisitsRequest):
         
     Note:
         Validates the session before retrieving visit information.
+        Supports pagination when subset is False.
     """
     user_id = db.is_session_valid(request.session_id)
     if user_id:
-        visits = db.get_user_visits(user_id, request.subset)
+        visits = db.get_user_visits(user_id, request.subset, request.offset, request.limit)
         return visits
     else:
         raise HTTPException(status_code=401, detail="Invalid session")
