@@ -122,9 +122,14 @@ class GetVisitsRequest(BaseModel):
     
     Fields:
         session_id (str): The active session identifier.
+        subset (bool): If True, returns initial subset. If False, uses pagination.
+        offset (int, optional): Number of visits to skip for pagination.
+        limit (int, optional): Maximum number of visits to return.
     """
     session_id: str
     subset: bool = False
+    offset: int = 0
+    limit: int = 20
 
 class DeleteAllVisitsForUserRequest(BaseModel):
     """
