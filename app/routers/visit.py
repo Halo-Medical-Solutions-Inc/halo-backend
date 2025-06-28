@@ -8,8 +8,8 @@ from datetime import datetime
 from fastapi import APIRouter
 import asyncio
 import re
-from app.integrations import officeally
-
+from app.integrations import officeally, advancemd
+from app.models.requests import CreateVisitRequest
 
 """
 Visit Router for managing visits.
@@ -18,6 +18,42 @@ It also handles the generation of notes for a visit using Claude AI.
 """
 
 router = APIRouter()
+
+@router.post("/create")
+async def create_visit(request: CreateVisitRequest):
+    """
+    Create a new visit for a user with specified name and context.
+    
+    Args:
+        request (CreateVisitRequest): The request containing user_email, visit_name, and visit_additional_context.
+        
+    Returns:
+        dict: The newly created visit document.
+        
+    Raises:
+        HTTPException: If user is not found or there's an error during visit creation.
+    """
+    try:
+        user = db.get_user_by_email(request.user_email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_id = user['user_id']
+        visit = db.create_visit(user_id)
+        
+        if request.visit_name or request.visit_additional_context:
+            visit = db.update_visit(
+                visit_id=visit['visit_id'],
+                name=request.visit_name,
+                additional_context=request.visit_additional_context
+            )
+        
+        return visit
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating visit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def handle_create_visit(websocket_session_id: str, user_id: str, data: dict):
     """
@@ -158,6 +194,8 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
             JSON_SCHEMA = ""
             if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
                 JSON_SCHEMA = officeally.JSON_SCHEMA
+            elif user.get("emr_integration").get("emr") == "ADVANCEMD":
+                JSON_SCHEMA = advancemd.JSON_SCHEMA
             else:
                 logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
                 raise HTTPException(status_code=400, detail="Unsupported EMR")

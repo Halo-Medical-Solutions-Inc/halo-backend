@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
-from app.routers import user, audio, admin, chat, integration
+from app.routers import user, audio, admin, chat, integration, visit
 from app.services.connection import manager
 import os
 from datetime import datetime
@@ -80,4 +80,5 @@ app.include_router(user.router, prefix="/user", tags=["User Operations"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin Operations"])
 app.include_router(audio.router, prefix="/audio", tags=["Audio Operations"])
 app.include_router(chat.router, prefix="/chat", tags=["Chat Operations"])
+app.include_router(visit.router, prefix="/visit", tags=["Visit Operations"])
 app.include_router(integration.router, prefix="/integration", tags=["Integration Operations"])

@@ -238,6 +238,7 @@ class VerifyEMRIntegrationRequest(BaseModel):
         emr (str): The name of the EMR system (e.g., "OFFICE_ALLY", "ADVANCEMD").
         credentials (dict): The credentials required for the specific EMR system.
                            For OFFICE_ALLY: {"username": str, "password": str}
+                           For ADVANCEMD: {"username": str, "password": str, "office_key": str, "app_name": str}
     """
     session_id: str
     emr: Literal["OFFICE_ALLY", "ADVANCEMD"]
@@ -251,6 +252,12 @@ class VerifyEMRIntegrationRequest(BaseModel):
                 "credentials": {
                     "username": "john.doe@example.com",
                     "password": "secure_password"
+                },
+                "credentials": {
+                    "username": "john.doe@example.com",
+                    "password": "secure_password",
+                    "office_key": "1234567890",
+                    "app_name": "MyApp"
                 }
             }
         }
@@ -275,3 +282,25 @@ class CreateNoteEMRIntegrationRequest(BaseModel):
     session_id: str
     patient_id: str
     visit_id: str
+
+class AskRequest(BaseModel):
+    """
+    Request model to ask a question to the AI.
+    
+    Fields:
+        message (str): The question to ask the AI.
+    """
+    message: str
+
+class CreateVisitRequest(BaseModel):
+    """
+    Request model for creating a visit with specific parameters.
+    
+    Fields:
+        user_email (str): The email of the user for whom to create the visit.
+        visit_name (str): The name of the visit.
+        visit_additional_context (str): Additional context for the visit.
+    """
+    user_email: str
+    visit_name: str
+    visit_additional_context: str

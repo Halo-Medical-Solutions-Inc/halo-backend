@@ -1,5 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from app.services.anthropic import ask_claude_stream
+from app.services.anthropic import ask_claude_stream, ask_claude
+from app.models.requests import AskRequest
 import json
 import logging
 
@@ -21,6 +22,10 @@ connection being independently managed.
 """
 
 router = APIRouter()
+
+@router.post("/ask")
+async def ask(request: AskRequest):
+    return await ask_claude(request.message, model="claude-3-5-sonnet-latest", max_tokens=8192)
 
 @router.websocket("/ws")
 async def chat_websocket(websocket: WebSocket):
@@ -57,6 +62,7 @@ async def chat_websocket(websocket: WebSocket):
             try:
                 message_data = json.loads(await websocket.receive_text())
                 message = message_data.get("message", "")
+                print(message)
                 
                 if not message:
                     await websocket.send_text(json.dumps({"type": "error", "message": "No message provided"}))
