@@ -62,7 +62,6 @@ async def chat_websocket(websocket: WebSocket):
             try:
                 message_data = json.loads(await websocket.receive_text())
                 message = message_data.get("message", "")
-                print(message)
                 
                 if not message:
                     await websocket.send_text(json.dumps({"type": "error", "message": "No message provided"}))

@@ -10,7 +10,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions, FileSource, DeepgramClientOptions
 from app.config import settings
 from app.services.connection import manager
-from app.routers.visit import handle_generate_note
+from app.routers.visit import handle_generate_note, handle_generate_visit_name
 import PyPDF2
 import docx
 import json
@@ -533,7 +533,11 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
             }
         }
         await manager.broadcast(websocket_session_id, user_id, broadcast_message)
+        
+        # Create both tasks to run concurrently
         asyncio.create_task(handle_generate_note(websocket_session_id, user_id, data))
+        asyncio.create_task(handle_generate_visit_name(websocket_session_id, user_id, data))
+        
     except Exception as e:
         logger.error(f"Error in finishing recording: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
