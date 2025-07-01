@@ -203,7 +203,7 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
 
             instructions = "Today's date: " + datetime.utcnow().strftime("%Y-%m-%d") + "\n\n" + visit.get("transcript") + "\n\n" + visit.get("additional_context") + "\n\n" + template.get("instructions")
             
-            visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", note=await ask_claude_json(instructions, JSON_SCHEMA, model="claude-opus-4-20250514", max_tokens=32000), template_modified_at=str(datetime.utcnow()))
+            visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", note=await ask_claude_json(instructions, JSON_SCHEMA), template_modified_at=str(datetime.utcnow()))
             broadcast_message = {
                 "type": "note_generated",
                 "data": {
