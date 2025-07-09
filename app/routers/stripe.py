@@ -13,10 +13,6 @@ This router handles Stripe checkout sessions, success/cancel callbacks,
 and subscription status checks.
 """
 
-# Ensure the API key is loaded from environment variables via settings
-if not settings.STRIPE_API_KEY:
-    raise ValueError("STRIPE_API_KEY environment variable is not set")
-
 stripe.api_key = settings.STRIPE_API_KEY
 router = APIRouter()
 
