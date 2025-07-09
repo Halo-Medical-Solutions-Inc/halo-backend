@@ -213,7 +213,7 @@ class database:
             user = {
                 'created_at': datetime.utcnow(),
                 'modified_at': datetime.utcnow(),
-                'status': 'ACTIVE',
+                'status': 'UNVERIFIED',
                 'encrypt_name': encrypt(name),
                 'encrypt_email': encrypted_email,
                 'hash_password': hash_password(password),
@@ -223,7 +223,11 @@ class database:
                 'template_ids': default_template_ids,
                 'visit_ids': [],
                 'daily_statistics': {},
-                'emr_integration': {}
+                'emr_integration': {},
+                'verification_code': None,
+                'verification_expires_at': None,
+                'reset_code': None,
+                'reset_expires_at': None
             }
             self.users.insert_one(user)
             return self.decrypt_user(user)
@@ -1072,6 +1076,148 @@ class database:
         except Exception as e:
             logger.error(f"verify_admin error for email {email}: {str(e)}")
             return None
+
+
+    def set_verification_code(self, user_id, code):
+        """
+        Set email verification code for a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            code (str): The verification code to set.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            expires_at = datetime.utcnow() + timedelta(hours=1)
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'verification_code': code,
+                    'verification_expires_at': expires_at
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"set_verification_code error for user_id {user_id}: {str(e)}")
+            return False
+    
+    def verify_email_code(self, user_id, code):
+        """
+        Verify email verification code and activate user if valid.
+        
+        Args:
+            user_id (str): The ID of the user.
+            code (str): The verification code to verify.
+            
+        Returns:
+            bool: True if verification successful, False otherwise.
+        """
+        try:
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            if not user:
+                return False
+            
+            if user.get('verification_code') != code:
+                return False
+            
+            if user.get('verification_expires_at') and user['verification_expires_at'] < datetime.utcnow():
+                return False
+            
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'status': 'ACTIVE',
+                    'verification_code': None,
+                    'verification_expires_at': None,
+                    'modified_at': datetime.utcnow()
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"verify_email_code error for user_id {user_id}: {str(e)}")
+            return False
+    
+    def set_reset_code(self, user_id, code):
+        """
+        Set password reset code for a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            code (str): The reset code to set.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            expires_at = datetime.utcnow() + timedelta(hours=1)
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'reset_code': code,
+                    'reset_expires_at': expires_at
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"set_reset_code error for user_id {user_id}: {str(e)}")
+            return False
+    
+    def verify_reset_code(self, email, code):
+        """
+        Verify password reset code.
+        
+        Args:
+            email (str): The user's email address.
+            code (str): The reset code to verify.
+            
+        Returns:
+            str: The user_id if verification successful, None otherwise.
+        """
+        try:
+            user = self.get_user_by_email(email)
+            if not user:
+                return None
+                
+            raw_user = self.users.find_one({'_id': ObjectId(user['user_id'])})
+            
+            if raw_user.get('reset_code') != code:
+                return None
+            
+            if raw_user.get('reset_expires_at') and raw_user['reset_expires_at'] < datetime.utcnow():
+                return None
+            
+            return user['user_id']
+        except Exception as e:
+            logger.error(f"verify_reset_code error for email {email}: {str(e)}")
+            return None
+    
+    def reset_password(self, user_id, new_password):
+        """
+        Reset user's password and clear reset code.
+        
+        Args:
+            user_id (str): The ID of the user.
+            new_password (str): The new password.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'hash_password': hash_password(new_password),
+                    'reset_code': None,
+                    'reset_expires_at': None,
+                    'modified_at': datetime.utcnow()
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"reset_password error for user_id {user_id}: {str(e)}")
+            return False
 
 
 db = database()

@@ -309,3 +309,56 @@ class CreateVisitRequest(BaseModel):
     user_email: str
     visit_name: str
     visit_additional_context: str
+
+class VerifyEmailRequest(BaseModel):
+    """
+    Request model for email verification.
+    
+    Fields:
+        session_id (str): The active session identifier.
+        code (str): The 4-digit verification code.
+    """
+    session_id: str
+    code: str
+
+class ResendVerificationRequest(BaseModel):
+    """
+    Request model to resend verification email.
+    
+    Fields:
+        session_id (str): The active session identifier.
+    """
+    session_id: str
+
+class RequestPasswordResetRequest(BaseModel):
+    """
+    Request model to request password reset.
+    
+    Fields:
+        email (str): The user's email address.
+    """
+    email: str
+
+class VerifyResetCodeRequest(BaseModel):
+    """
+    Request model to verify password reset code.
+    
+    Fields:
+        email (str): The user's email address.
+        code (str): The 4-digit reset code.
+    """
+    email: str
+    code: str
+
+class ResetPasswordRequest(BaseModel):
+    """
+    Request model to reset password.
+    
+    Fields:
+        email (str): The user's email address.
+        code (str): The 4-digit reset code.
+        new_password (str): The new password.
+    """
+    email: str
+    code: str
+    new_password: str
