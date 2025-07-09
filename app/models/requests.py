@@ -382,3 +382,6 @@ class CheckSubscriptionRequest(BaseModel):
         user_id (str): The ID of the user to check subscription for.
     """
     user_id: str
+
+class StartFreeTrialRequest(BaseModel):
+    user_id: str

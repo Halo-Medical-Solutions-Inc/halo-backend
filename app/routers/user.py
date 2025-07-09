@@ -1,7 +1,8 @@
 from app.models.requests import (
     SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, 
     WebSocketMessage, VerifyEmailRequest, ResendVerificationRequest, 
-    RequestPasswordResetRequest, VerifyResetCodeRequest, ResetPasswordRequest
+    RequestPasswordResetRequest, VerifyResetCodeRequest, ResetPasswordRequest,
+    CreateCheckoutSessionRequest, CheckSubscriptionRequest, StartFreeTrialRequest
 )
 from fastapi import APIRouter, HTTPException
 from fastapi.websockets import WebSocket, WebSocketDisconnect
@@ -14,7 +15,9 @@ from app.routers.audio import handle_start_recording, handle_pause_recording, ha
 from app.services.logging import logger
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from pydantic import BaseModel
+from bson import ObjectId
 
 """
 User Router for managing user operations.
@@ -278,9 +281,84 @@ def reset_password(request: ResetPasswordRequest):
     else:
         raise HTTPException(status_code=500, detail="Failed to reset password")
 
+@router.post("/start-free-trial")
+def start_free_trial(request: StartFreeTrialRequest):
+    """
+    Start free trial for a user.
+    
+    Args:
+        request (StartFreeTrialRequest): Request containing user_id.
+        
+    Returns:
+        dict: Updated user information.
+        
+    Raises:
+        HTTPException: If user not found or trial already used.
+    """
+    try:
+        user = db.get_user(request.user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if user.get('free_trial_used'):
+            raise HTTPException(status_code=400, detail="Free trial already used")
+        
+        updated_user = db.start_free_trial(request.user_id)
+        if not updated_user:
+            raise HTTPException(status_code=500, detail="Failed to start free trial")
+        
+        return {"message": "Free trial started successfully", "user": updated_user}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Start free trial error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to start free trial")
+
+@router.post("/check-subscription")
+def check_subscription(request: CheckSubscriptionRequest):
+    """
+    Check if user has an active subscription or valid free trial.
+    
+    Args:
+        request (CheckSubscriptionRequest): Request containing user_id.
+        
+    Returns:
+        dict: Contains subscription status information.
+    """
+    try:
+        user = db.get_user(request.user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        subscription_status = user.get('subscription_status', 'INACTIVE')
+        has_active_subscription = subscription_status == 'ACTIVE'
+        
+        # Check if user has valid free trial
+        if subscription_status == 'FREE_TRIAL':
+            trial_expired = db.check_trial_expired(request.user_id)
+            if trial_expired:
+                # Update user status to inactive if trial expired
+                db.update_user_subscription(request.user_id, 'INACTIVE')
+                has_active_subscription = False
+                subscription_status = 'INACTIVE'
+            else:
+                has_active_subscription = True
+        
+        return {
+            "has_active_subscription": has_active_subscription,
+            "subscription_status": subscription_status,
+            "free_trial_used": user.get('free_trial_used', False),
+            "free_trial_expiration_date": user.get('free_trial_expiration_date')
+        }
+        
+    except Exception as e:
+        logger.error(f"Check subscription error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to check subscription")
+
 def require_verified_user(session_id: str):
     """
-    Helper function to validate that a session belongs to a verified user.
+    Helper function to validate that a session belongs to a verified user with active subscription or valid trial.
     
     Args:
         session_id (str): The session ID to validate.
@@ -289,7 +367,7 @@ def require_verified_user(session_id: str):
         str: The user_id if valid and verified.
         
     Raises:
-        HTTPException: If session is invalid (401) or user is unverified (403).
+        HTTPException: If session is invalid (401) or user is unverified (403) or subscription required (402).
     """
     user_id = db.is_session_valid(session_id)
     if not user_id:
@@ -299,7 +377,18 @@ def require_verified_user(session_id: str):
     if user['status'] != 'ACTIVE':
         raise HTTPException(status_code=403, detail="Email verification required")
     
-    return user_id
+    # Check subscription status
+    subscription_status = user.get('subscription_status', 'INACTIVE')
+    if subscription_status == 'ACTIVE':
+        return user_id
+    elif subscription_status == 'FREE_TRIAL':
+        # Check if trial has expired
+        if db.check_trial_expired(user_id):
+            db.update_user_subscription(user_id, 'INACTIVE')
+            raise HTTPException(status_code=402, detail="Free trial expired. Subscription required.")
+        return user_id
+    else:
+        raise HTTPException(status_code=402, detail="Active subscription required")
 
 async def handle_update_user(websocket_session_id: str, user_id: str, data: dict):
     """

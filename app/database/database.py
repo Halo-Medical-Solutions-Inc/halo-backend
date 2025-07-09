@@ -169,6 +169,10 @@ class database:
             user_copy['created_at'] = str(user_copy['created_at'])
             user_copy['modified_at'] = str(user_copy['modified_at'])
             user_copy['subscription_status'] = user_copy.get('subscription_status', 'INACTIVE')
+            user_copy['free_trial_used'] = user_copy.get('free_trial_used', False)
+            user_copy['free_trial_expiration_date'] = user_copy.get('free_trial_expiration_date')
+            if user_copy['free_trial_expiration_date']:
+                user_copy['free_trial_expiration_date'] = str(user_copy['free_trial_expiration_date'])
             user_copy['stripe_customer_id'] = user_copy.get('stripe_customer_id')
             user_copy['stripe_subscription_id'] = user_copy.get('stripe_subscription_id')
             if 'emr_integration' in user_copy and user_copy['emr_integration']:
@@ -233,7 +237,9 @@ class database:
                 'reset_expires_at': None,
                 'subscription_status': 'INACTIVE',
                 'stripe_customer_id': None,
-                'stripe_subscription_id': None
+                'stripe_subscription_id': None,
+                'free_trial_used': False,
+                'free_trial_expiration_date': None
             }
             self.users.insert_one(user)
             return self.decrypt_user(user)
@@ -1255,6 +1261,57 @@ class database:
         except Exception as e:
             logger.error(f"update_user_subscription error for user_id {user_id}: {str(e)}")
             return None
+
+    def start_free_trial(self, user_id):
+        """
+        Start free trial for a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            
+        Returns:
+            dict: The updated user document with decrypted fields, or None if update failed.
+        """
+        try:
+            expiration_date = datetime.utcnow() + timedelta(days=7)
+            update_fields = {
+                'subscription_status': 'FREE_TRIAL',
+                'free_trial_used': True,
+                'free_trial_expiration_date': expiration_date,
+                'modified_at': datetime.utcnow()
+            }
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            return self.decrypt_user(user)
+        except Exception as e:
+            logger.error(f"start_free_trial error for user_id {user_id}: {str(e)}")
+            return None
+
+    def check_trial_expired(self, user_id):
+        """
+        Check if user's free trial has expired.
+        
+        Args:
+            user_id (str): The ID of the user.
+            
+        Returns:
+            bool: True if trial has expired, False otherwise.
+        """
+        try:
+            user = self.get_user(user_id)
+            if not user or user.get('subscription_status') != 'FREE_TRIAL':
+                return False
+            
+            expiration_date = user.get('free_trial_expiration_date')
+            if not expiration_date:
+                return False
+            
+            # Convert string back to datetime for comparison
+            expiration_datetime = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
+            return datetime.utcnow() > expiration_datetime
+        except Exception as e:
+            logger.error(f"check_trial_expired error for user_id {user_id}: {str(e)}")
+            return False
 
 
 db = database()

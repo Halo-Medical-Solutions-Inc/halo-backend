@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from app.database.database import db
 from app.services.logging import logger
-from app.models.requests import CreateCheckoutSessionRequest, CheckSubscriptionRequest
+from app.models.requests import CreateCheckoutSessionRequest, CheckSubscriptionRequest, StartFreeTrialRequest
 import stripe
 import os
 from app.config import settings
@@ -142,10 +142,44 @@ async def cancel(user_id: str):
     logger.info(f"Payment cancelled for user {user_id}")
     return RedirectResponse(url=f"{settings.FRONTEND_URL}/payment-required?cancelled=true")
 
+@router.post("/start-free-trial")
+def start_free_trial(request: StartFreeTrialRequest):
+    """
+    Start free trial for a user.
+    
+    Args:
+        request (StartFreeTrialRequest): Request containing user_id.
+        
+    Returns:
+        dict: Updated user information.
+        
+    Raises:
+        HTTPException: If user not found or trial already used.
+    """
+    try:
+        user = db.get_user(request.user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if user.get('free_trial_used'):
+            raise HTTPException(status_code=400, detail="Free trial already used")
+        
+        updated_user = db.start_free_trial(request.user_id)
+        if not updated_user:
+            raise HTTPException(status_code=500, detail="Failed to start free trial")
+        
+        return {"message": "Free trial started successfully", "user": updated_user}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Start free trial error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to start free trial")
+
 @router.post("/check-subscription")
 def check_subscription(request: CheckSubscriptionRequest):
     """
-    Check if user has an active subscription.
+    Check if user has an active subscription or valid free trial.
     
     Args:
         request (CheckSubscriptionRequest): Request containing user_id.
@@ -157,10 +191,26 @@ def check_subscription(request: CheckSubscriptionRequest):
         user = db.get_user(request.user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-            
+        
+        subscription_status = user.get('subscription_status', 'INACTIVE')
+        has_active_subscription = subscription_status == 'ACTIVE'
+        
+        # Check if user has valid free trial
+        if subscription_status == 'FREE_TRIAL':
+            trial_expired = db.check_trial_expired(request.user_id)
+            if trial_expired:
+                # Update user status to inactive if trial expired
+                db.update_user_subscription(request.user_id, 'INACTIVE')
+                has_active_subscription = False
+                subscription_status = 'INACTIVE'
+            else:
+                has_active_subscription = True
+        
         return {
-            "has_active_subscription": user.get('subscription_status') == 'ACTIVE',
-            "subscription_status": user.get('subscription_status', 'INACTIVE')
+            "has_active_subscription": has_active_subscription,
+            "subscription_status": subscription_status,
+            "free_trial_used": user.get('free_trial_used', False),
+            "free_trial_expiration_date": user.get('free_trial_expiration_date')
         }
         
     except Exception as e:
