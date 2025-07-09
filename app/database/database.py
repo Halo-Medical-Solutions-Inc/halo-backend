@@ -168,6 +168,9 @@ class database:
             user_copy['email'] = decrypt(user_copy['encrypt_email'])
             user_copy['created_at'] = str(user_copy['created_at'])
             user_copy['modified_at'] = str(user_copy['modified_at'])
+            user_copy['subscription_status'] = user_copy.get('subscription_status', 'INACTIVE')
+            user_copy['stripe_customer_id'] = user_copy.get('stripe_customer_id')
+            user_copy['stripe_subscription_id'] = user_copy.get('stripe_subscription_id')
             if 'emr_integration' in user_copy and user_copy['emr_integration']:
                 emr_integration = user_copy['emr_integration']
                 if 'encrypt_credentials' in emr_integration:
@@ -227,7 +230,10 @@ class database:
                 'verification_code': None,
                 'verification_expires_at': None,
                 'reset_code': None,
-                'reset_expires_at': None
+                'reset_expires_at': None,
+                'subscription_status': 'INACTIVE',
+                'stripe_customer_id': None,
+                'stripe_subscription_id': None
             }
             self.users.insert_one(user)
             return self.decrypt_user(user)
@@ -1218,6 +1224,36 @@ class database:
         except Exception as e:
             logger.error(f"reset_password error for user_id {user_id}: {str(e)}")
             return False
+
+    def update_user_subscription(self, user_id, subscription_status, stripe_customer_id=None, stripe_subscription_id=None):
+        """
+        Update user's subscription information.
+        
+        Args:
+            user_id (str): The ID of the user.
+            subscription_status (str): The subscription status (ACTIVE, INACTIVE, CANCELLED).
+            stripe_customer_id (str, optional): The Stripe customer ID.
+            stripe_subscription_id (str, optional): The Stripe subscription ID.
+            
+        Returns:
+            dict: The updated user document with decrypted fields, or None if update failed.
+        """
+        try:
+            update_fields = {
+                'subscription_status': subscription_status,
+                'modified_at': datetime.utcnow()
+            }
+            if stripe_customer_id is not None:
+                update_fields['stripe_customer_id'] = stripe_customer_id
+            if stripe_subscription_id is not None:
+                update_fields['stripe_subscription_id'] = stripe_subscription_id
+                
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            return self.decrypt_user(user)
+        except Exception as e:
+            logger.error(f"update_user_subscription error for user_id {user_id}: {str(e)}")
+            return None
 
 
 db = database()

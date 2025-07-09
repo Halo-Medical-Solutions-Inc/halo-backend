@@ -362,3 +362,12 @@ class ResetPasswordRequest(BaseModel):
     email: str
     code: str
     new_password: str
+
+class CreateCheckoutSessionRequest(BaseModel):
+    """
+    Request model to create a Stripe checkout session.
+    
+    Fields:
+        user_id (str): The ID of the user creating the checkout session.
+    """
+    user_id: str
