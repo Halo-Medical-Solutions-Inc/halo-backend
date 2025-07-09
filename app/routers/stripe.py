@@ -2,23 +2,21 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from app.database.database import db
 from app.services.logging import logger
-from app.models.requests import CreateCheckoutSessionRequest
+from app.models.requests import CreateCheckoutSessionRequest, CheckSubscriptionRequest
 import stripe
 import os
-
+from app.config import settings
 """
 Stripe Router for managing subscription payments.
 This router handles Stripe checkout sessions, success/cancel callbacks,
 and subscription status checks.
 """
 
-# Hardcoded Stripe API key as requested
-stripe.api_key = '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'
+stripe.api_key = settings.STRIPE_API_KEY
 
 router = APIRouter()
 
-# Your domain - update this for production
-YOUR_DOMAIN = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+YOUR_DOMAIN = settings.FRONTEND_URL
 
 @router.post("/create-checkout-session")
 def create_checkout_session(request: CreateCheckoutSessionRequest):
@@ -26,7 +24,7 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
     Create a Stripe checkout session for subscription.
     
     Args:
-        request (CreateCheckoutSessionRequest): Request containing user_id.
+        request (CreateCheckoutSessionRequest): Request containing user_id and plan_type.
         
     Returns:
         dict: Contains the checkout URL to redirect the user to.
@@ -35,7 +33,7 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
         HTTPException: If checkout session creation fails.
     """
     try:
-        logger.info(f"Creating checkout session for user: {request.user_id}")
+        logger.info(f"Creating checkout session for user: {request.user_id}, plan: {request.plan_type}")
         
         user = db.get_user(request.user_id)
         if not user:
@@ -43,6 +41,18 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
             raise HTTPException(status_code=404, detail="User not found")
         
         logger.info(f"User found: {user['email']}")
+        
+        # Validate plan type and get price ID
+        if request.plan_type == 'monthly':
+            price_id = 'price_1Rj5CwLnOLAQsDbYmEAAOu7B'  # $250/month
+            plan_name = 'MONTHLY'
+        elif request.plan_type == 'yearly':
+            price_id = 'price_1Rj6GXLnOLAQsDbY1BMrVimb'  # $200/year
+            plan_name = 'YEARLY'
+        else:
+            raise HTTPException(status_code=400, detail="Invalid plan type. Must be 'monthly' or 'yearly'")
+        
+        logger.info(f"Using price ID: {price_id} for plan: {plan_name}")
         
         # Create Stripe customer if doesn't exist
         if not user.get('stripe_customer_id'):
@@ -68,13 +78,12 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
             customer=customer_id,
             line_items=[
                 {
-                    # Using the price ID from your example
-                    'price': 'price_1Rj5CwLnOLAQsDbYmEAAOu7B',
+                    'price': price_id,
                     'quantity': 1,
                 },
             ],
             mode='subscription',
-            success_url=f"http://localhost:8000/stripe/success?session_id={{CHECKOUT_SESSION_ID}}&user_id={request.user_id}",
+            success_url=f"http://localhost:8000/stripe/success?session_id={{CHECKOUT_SESSION_ID}}&user_id={request.user_id}&plan={plan_name}",
             cancel_url=f"http://localhost:8000/stripe/cancel?user_id={request.user_id}",
         )
         
@@ -92,13 +101,14 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
         raise HTTPException(status_code=500, detail=f"Failed to create checkout session: {str(e)}")
 
 @router.get("/success")
-async def success(session_id: str, user_id: str):
+async def success(session_id: str, user_id: str, plan: str):
     """
     Handle successful payment callback from Stripe.
     
     Args:
         session_id (str): The Stripe checkout session ID.
         user_id (str): The user ID.
+        plan (str): The subscription plan (MONTHLY or YEARLY).
         
     Returns:
         RedirectResponse: Redirects to dashboard with success message.
@@ -114,7 +124,7 @@ async def success(session_id: str, user_id: str):
                 subscription_status='ACTIVE',
                 stripe_subscription_id=session.subscription
             )
-            logger.info(f"Subscription activated for user {user_id}")
+            logger.info(f"Subscription activated for user {user_id} with plan {plan}")
             
             # Redirect to dashboard
             return RedirectResponse(url=f"{YOUR_DOMAIN}/dashboard?payment=success")
@@ -140,12 +150,12 @@ async def cancel(user_id: str):
     return RedirectResponse(url=f"{YOUR_DOMAIN}/payment-required?cancelled=true")
 
 @router.post("/check-subscription")
-def check_subscription(request: CreateCheckoutSessionRequest):
+def check_subscription(request: CheckSubscriptionRequest):
     """
     Check if user has an active subscription.
     
     Args:
-        request (CreateCheckoutSessionRequest): Request containing user_id.
+        request (CheckSubscriptionRequest): Request containing user_id.
         
     Returns:
         dict: Contains subscription status information.
@@ -162,7 +172,7 @@ def check_subscription(request: CreateCheckoutSessionRequest):
         
     except Exception as e:
         logger.error(f"Check subscription error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to check subscription") 
+        raise HTTPException(status_code=500, detail="Failed to check subscription")
 
 @router.get("/test")
 def test_stripe():

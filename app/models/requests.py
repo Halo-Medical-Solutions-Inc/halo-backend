@@ -369,5 +369,16 @@ class CreateCheckoutSessionRequest(BaseModel):
     
     Fields:
         user_id (str): The ID of the user creating the checkout session.
+        plan_type (str): The subscription plan type ('monthly' or 'yearly').
+    """
+    user_id: str
+    plan_type: str  # 'monthly' or 'yearly'
+
+class CheckSubscriptionRequest(BaseModel):
+    """
+    Request model to check subscription status.
+    
+    Fields:
+        user_id (str): The ID of the user to check subscription for.
     """
     user_id: str

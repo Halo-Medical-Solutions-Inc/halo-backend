@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str
     DEEPGRAM_API_KEY: str
     CIPHER: str
+    STRIPE_API_KEY: str
+    FRONTEND_URL: str
     class Config:
         env_file = ".env"
 
