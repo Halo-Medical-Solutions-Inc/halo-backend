@@ -13,6 +13,7 @@ This router handles Stripe checkout sessions, success/cancel callbacks,
 and subscription status checks.
 """
 
+
 stripe.api_key = settings.STRIPE_API_KEY
 router = APIRouter()
 
