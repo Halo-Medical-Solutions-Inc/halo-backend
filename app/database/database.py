@@ -1225,7 +1225,7 @@ class database:
             logger.error(f"reset_password error for user_id {user_id}: {str(e)}")
             return False
 
-    def update_user_subscription(self, user_id, subscription_status, stripe_customer_id=None, stripe_subscription_id=None):
+    def update_user_subscription(self, user_id, subscription_status, stripe_customer_id=None, stripe_subscription_id=None, subscription_plan=None):
         """
         Update user's subscription information.
         
@@ -1234,7 +1234,7 @@ class database:
             subscription_status (str): The subscription status (ACTIVE, INACTIVE, CANCELLED).
             stripe_customer_id (str, optional): The Stripe customer ID.
             stripe_subscription_id (str, optional): The Stripe subscription ID.
-            
+            subscription_plan (str, optional): The subscription plan (MONTHLY, YEARLY).
         Returns:
             dict: The updated user document with decrypted fields, or None if update failed.
         """
@@ -1247,7 +1247,8 @@ class database:
                 update_fields['stripe_customer_id'] = stripe_customer_id
             if stripe_subscription_id is not None:
                 update_fields['stripe_subscription_id'] = stripe_subscription_id
-                
+            if subscription_plan is not None:
+                update_fields['subscription_plan'] = subscription_plan
             self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
             user = self.users.find_one({'_id': ObjectId(user_id)})
             return self.decrypt_user(user)

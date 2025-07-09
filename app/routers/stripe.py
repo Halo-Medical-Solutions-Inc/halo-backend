@@ -6,6 +6,7 @@ from app.models.requests import CreateCheckoutSessionRequest, CheckSubscriptionR
 import stripe
 import os
 from app.config import settings
+
 """
 Stripe Router for managing subscription payments.
 This router handles Stripe checkout sessions, success/cancel callbacks,
@@ -13,10 +14,7 @@ and subscription status checks.
 """
 
 stripe.api_key = settings.STRIPE_API_KEY
-
 router = APIRouter()
-
-YOUR_DOMAIN = settings.FRONTEND_URL
 
 @router.post("/create-checkout-session")
 def create_checkout_session(request: CreateCheckoutSessionRequest):
@@ -42,19 +40,17 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
         
         logger.info(f"User found: {user['email']}")
         
-        # Validate plan type and get price ID
         if request.plan_type == 'monthly':
-            price_id = 'price_1Rj5CwLnOLAQsDbYmEAAOu7B'  # $250/month
+            price_id = 'price_1Rj5CwLnOLAQsDbYmEAAOu7B'
             plan_name = 'MONTHLY'
         elif request.plan_type == 'yearly':
-            price_id = 'price_1Rj6GXLnOLAQsDbY1BMrVimb'  # $200/year
+            price_id = 'price_1Rj6GXLnOLAQsDbY1BMrVimb'
             plan_name = 'YEARLY'
         else:
             raise HTTPException(status_code=400, detail="Invalid plan type. Must be 'monthly' or 'yearly'")
         
         logger.info(f"Using price ID: {price_id} for plan: {plan_name}")
         
-        # Create Stripe customer if doesn't exist
         if not user.get('stripe_customer_id'):
             logger.info("Creating new Stripe customer")
             customer = stripe.Customer.create(
@@ -72,7 +68,6 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
             customer_id = user['stripe_customer_id']
             logger.info(f"Using existing customer: {customer_id}")
         
-        # Create checkout session
         logger.info("Creating Stripe checkout session")
         checkout_session = stripe.checkout.Session.create(
             customer=customer_id,
@@ -83,8 +78,8 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
                 },
             ],
             mode='subscription',
-            success_url=f"http://localhost:8000/stripe/success?session_id={{CHECKOUT_SESSION_ID}}&user_id={request.user_id}&plan={plan_name}",
-            cancel_url=f"http://localhost:8000/stripe/cancel?user_id={request.user_id}",
+            success_url=f"{settings.BACKEND_URL}/stripe/success?session_id={{CHECKOUT_SESSION_ID}}&user_id={request.user_id}&plan={plan_name}",
+            cancel_url=f"{settings.BACKEND_URL}/stripe/cancel?user_id={request.user_id}",
         )
         
         logger.info(f"Created checkout session: {checkout_session.id}")
@@ -114,26 +109,24 @@ async def success(session_id: str, user_id: str, plan: str):
         RedirectResponse: Redirects to dashboard with success message.
     """
     try:
-        # Retrieve the session from Stripe
         session = stripe.checkout.Session.retrieve(session_id)
         
         if session.payment_status == 'paid':
-            # Update user subscription status
             db.update_user_subscription(
                 user_id=user_id,
                 subscription_status='ACTIVE',
-                stripe_subscription_id=session.subscription
+                stripe_subscription_id=session.subscription,
+                subscription_plan=plan
             )
             logger.info(f"Subscription activated for user {user_id} with plan {plan}")
             
-            # Redirect to dashboard
-            return RedirectResponse(url=f"{YOUR_DOMAIN}/dashboard?payment=success")
+            return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard?payment=success")
         else:
-            return RedirectResponse(url=f"{YOUR_DOMAIN}/dashboard?payment=pending")
+            return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard?payment=pending")
             
     except Exception as e:
         logger.error(f"Success callback error: {str(e)}")
-        return RedirectResponse(url=f"{YOUR_DOMAIN}/dashboard?payment=error")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard?payment=error")
 
 @router.get("/cancel")
 async def cancel(user_id: str):
@@ -147,7 +140,7 @@ async def cancel(user_id: str):
         RedirectResponse: Redirects to payment required page.
     """
     logger.info(f"Payment cancelled for user {user_id}")
-    return RedirectResponse(url=f"{YOUR_DOMAIN}/payment-required?cancelled=true")
+    return RedirectResponse(url=f"{settings.FRONTEND_URL}/payment-required?cancelled=true")
 
 @router.post("/check-subscription")
 def check_subscription(request: CheckSubscriptionRequest):
@@ -180,10 +173,8 @@ def test_stripe():
     Test Stripe connection and price ID.
     """
     try:
-        # Test if we can connect to Stripe
         customers = stripe.Customer.list(limit=1)
-        
-        # Test if the price exists
+
         price = stripe.Price.retrieve('price_1Rj5CwLnOLAQsDbYmEAAOu7B')
         
         return {

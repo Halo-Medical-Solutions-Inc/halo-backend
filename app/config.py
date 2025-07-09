@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     CIPHER: str
     STRIPE_API_KEY: str
     FRONTEND_URL: str
+    BACKEND_URL: str
     class Config:
         env_file = ".env"
 
