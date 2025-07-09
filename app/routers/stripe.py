@@ -195,11 +195,9 @@ def check_subscription(request: CheckSubscriptionRequest):
         subscription_status = user.get('subscription_status', 'INACTIVE')
         has_active_subscription = subscription_status == 'ACTIVE'
         
-        # Check if user has valid free trial
         if subscription_status == 'FREE_TRIAL':
             trial_expired = db.check_trial_expired(request.user_id)
             if trial_expired:
-                # Update user status to inactive if trial expired
                 db.update_user_subscription(request.user_id, 'INACTIVE')
                 has_active_subscription = False
                 subscription_status = 'INACTIVE'

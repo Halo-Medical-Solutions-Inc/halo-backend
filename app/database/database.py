@@ -1306,7 +1306,6 @@ class database:
             if not expiration_date:
                 return False
             
-            # Convert string back to datetime for comparison
             expiration_datetime = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
             return datetime.utcnow() > expiration_datetime
         except Exception as e:

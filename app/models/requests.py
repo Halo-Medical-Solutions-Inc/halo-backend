@@ -372,7 +372,7 @@ class CreateCheckoutSessionRequest(BaseModel):
         plan_type (str): The subscription plan type ('monthly' or 'yearly').
     """
     user_id: str
-    plan_type: str  # 'monthly' or 'yearly'
+    plan_type: str
 
 class CheckSubscriptionRequest(BaseModel):
     """

@@ -534,7 +534,6 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         }
         await manager.broadcast(websocket_session_id, user_id, broadcast_message)
         
-        # Create both tasks to run concurrently
         asyncio.create_task(handle_generate_note(websocket_session_id, user_id, data))
         asyncio.create_task(handle_generate_visit_name(websocket_session_id, user_id, data))
         
