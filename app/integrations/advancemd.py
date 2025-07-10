@@ -4,6 +4,7 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 from typing import List, Dict, Optional
+from app.services.logging import logger
 
 INSTRUCTIONS = """
 Generate everything to the best of your ability.
@@ -168,7 +169,6 @@ def create_note(username: str, password: str, office_key: str, app_name: str,
     Returns:
         bool: True if note was created successfully, False otherwise
     """
-    print(payload)
     
     def _login() -> Optional[tuple]:
         """Login and get token and webserver URL."""
@@ -196,13 +196,11 @@ def create_note(username: str, password: str, office_key: str, app_name: str,
                         api_version = webserver.split('/')[-2]
                         redirect_url = f"https://providerapi.advancedmd.com/processrequest/{api_version}/{app_name}/xmlrpc/processrequest.aspx"
                         
-                        # Retry login with redirected URL
                         response = requests.post(redirect_url, headers=headers, data=login_xml)
                         response.raise_for_status()
                         root = ET.fromstring(response.text)
                         results = root.find('Results')
-            
-            # Extract token and webserver URL
+
             if results is not None and results.get('success') == '1':
                 usercontext = results.find('usercontext')
                 if usercontext is not None:
@@ -213,7 +211,7 @@ def create_note(username: str, password: str, office_key: str, app_name: str,
             return None
             
         except Exception as e:
-            print(f"Login failed: {e}")
+            logger.error(f"Login failed: {e}")
             return None
     
     def _create_halo_note(token: str, webserver_url: str) -> bool:
@@ -272,7 +270,7 @@ def create_note(username: str, password: str, office_key: str, app_name: str,
             return False
             
         except Exception as e:
-            print(f"Note creation failed: {e}")
+            logger.error(f"Note creation failed: {e}")
             return False
     
     try:
@@ -283,5 +281,5 @@ def create_note(username: str, password: str, office_key: str, app_name: str,
         return _create_halo_note(token, webserver_url)
         
     except Exception as e:
-        print(f"Error in create_note: {e}")
+        logger.error(f"Error in create_note: {e}")
         return False
