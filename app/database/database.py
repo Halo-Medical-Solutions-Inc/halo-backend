@@ -158,6 +158,7 @@ class database:
             
         Note:
             Converts ObjectIds to strings and decrypts sensitive fields.
+            Only works with the new database format.
         """
         try:
             user_copy = user.copy()
@@ -168,6 +169,16 @@ class database:
             user_copy['email'] = decrypt(user_copy['encrypt_email'])
             user_copy['created_at'] = str(user_copy['created_at'])
             user_copy['modified_at'] = str(user_copy['modified_at'])
+            subscription = user_copy.get('subscription', {})
+            if subscription.get('free_trial_expiration_date'):
+                subscription['free_trial_expiration_date'] = str(subscription['free_trial_expiration_date'])
+            user_copy['subscription'] = subscription
+            miscellaneous = user_copy.get('miscellaneous', {})
+            if miscellaneous.get('verification_expires_at'):
+                miscellaneous['verification_expires_at'] = str(miscellaneous['verification_expires_at'])
+            if miscellaneous.get('reset_expires_at'):
+                miscellaneous['reset_expires_at'] = str(miscellaneous['reset_expires_at'])
+            user_copy['miscellaneous'] = miscellaneous
             if 'emr_integration' in user_copy and user_copy['emr_integration']:
                 emr_integration = user_copy['emr_integration']
                 if 'encrypt_credentials' in emr_integration:
@@ -213,7 +224,7 @@ class database:
             user = {
                 'created_at': datetime.utcnow(),
                 'modified_at': datetime.utcnow(),
-                'status': 'ACTIVE',
+                'status': 'UNVERIFIED',
                 'encrypt_name': encrypt(name),
                 'encrypt_email': encrypted_email,
                 'hash_password': hash_password(password),
@@ -223,7 +234,20 @@ class database:
                 'template_ids': default_template_ids,
                 'visit_ids': [],
                 'daily_statistics': {},
-                'emr_integration': {}
+                'emr_integration': {},
+                'subscription': {
+                    'plan': 'NO_PLAN',
+                    'free_trial_used': False,
+                    'free_trial_expiration_date': None,
+                    'stripe_customer_id': None,
+                    'stripe_subscription_id': None
+                },
+                'miscellaneous': {
+                    'verification_code': None,
+                    'verification_expires_at': None,
+                    'reset_code': None,
+                    'reset_expires_at': None
+                }
             }
             self.users.insert_one(user)
             return self.decrypt_user(user)
@@ -1072,6 +1096,334 @@ class database:
         except Exception as e:
             logger.error(f"verify_admin error for email {email}: {str(e)}")
             return None
+
+
+    def set_verification_code(self, user_id, code):
+        """
+        Set email verification code for a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            code (str): The verification code to set.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            expires_at = datetime.utcnow() + timedelta(hours=1)
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'miscellaneous.verification_code': code,
+                    'miscellaneous.verification_expires_at': expires_at
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"set_verification_code error for user_id {user_id}: {str(e)}")
+            return False
+    
+    def verify_email_code(self, user_id, code):
+        """
+        Verify email verification code and activate user if valid.
+        
+        Args:
+            user_id (str): The ID of the user.
+            code (str): The verification code to verify.
+            
+        Returns:
+            bool: True if verification successful, False otherwise.
+        """
+        try:
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            if not user:
+                return False
+            
+            miscellaneous = user.get('miscellaneous', {})
+            if miscellaneous.get('verification_code') != code:
+                return False
+            
+            if miscellaneous.get('verification_expires_at') and miscellaneous['verification_expires_at'] < datetime.utcnow():
+                return False
+            
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'status': 'ACTIVE',
+                    'miscellaneous.verification_code': None,
+                    'miscellaneous.verification_expires_at': None,
+                    'modified_at': datetime.utcnow()
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"verify_email_code error for user_id {user_id}: {str(e)}")
+            return False
+    
+    def set_reset_code(self, user_id, code):
+        """
+        Set password reset code for a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            code (str): The reset code to set.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            expires_at = datetime.utcnow() + timedelta(hours=1)
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'miscellaneous.reset_code': code,
+                    'miscellaneous.reset_expires_at': expires_at
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"set_reset_code error for user_id {user_id}: {str(e)}")
+            return False
+    
+    def verify_reset_code(self, email, code):
+        """
+        Verify password reset code.
+        
+        Args:
+            email (str): The user's email address.
+            code (str): The reset code to verify.
+            
+        Returns:
+            str: The user_id if verification successful, None otherwise.
+        """
+        try:
+            user = self.get_user_by_email(email)
+            if not user:
+                return None
+                
+            raw_user = self.users.find_one({'_id': ObjectId(user['user_id'])})
+            miscellaneous = raw_user.get('miscellaneous', {})
+            
+            if miscellaneous.get('reset_code') != code:
+                return None
+            
+            if miscellaneous.get('reset_expires_at') and miscellaneous['reset_expires_at'] < datetime.utcnow():
+                return None
+            
+            return user['user_id']
+        except Exception as e:
+            logger.error(f"verify_reset_code error for email {email}: {str(e)}")
+            return None
+    
+    def reset_password(self, user_id, new_password):
+        """
+        Reset user's password and clear reset code.
+        
+        Args:
+            user_id (str): The ID of the user.
+            new_password (str): The new password.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            self.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {
+                    'hash_password': hash_password(new_password),
+                    'miscellaneous.reset_code': None,
+                    'miscellaneous.reset_expires_at': None,
+                    'modified_at': datetime.utcnow()
+                }}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"reset_password error for user_id {user_id}: {str(e)}")
+            return False
+
+    def update_user_subscription(self, user_id, plan, stripe_customer_id=None, stripe_subscription_id=None):
+        """
+        Update user's subscription information.
+        
+        Args:
+            user_id (str): The ID of the user.
+            plan (str): The subscription plan (NO_PLAN, CANCELLED, FREE, MONTHLY, YEARLY, CUSTOM).
+            stripe_customer_id (str, optional): The Stripe customer ID.
+            stripe_subscription_id (str, optional): The Stripe subscription ID.
+        Returns:
+            dict: The updated user document with decrypted fields, or None if update failed.
+        """
+        try:
+            update_fields = {
+                'subscription.plan': plan,
+                'modified_at': datetime.utcnow()
+            }
+            if stripe_customer_id is not None:
+                update_fields['subscription.stripe_customer_id'] = stripe_customer_id
+            if stripe_subscription_id is not None:
+                update_fields['subscription.stripe_subscription_id'] = stripe_subscription_id
+            
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            return self.decrypt_user(user)
+        except Exception as e:
+            logger.error(f"update_user_subscription error for user_id {user_id}: {str(e)}")
+            return None
+
+    def start_free_trial(self, user_id):
+        """
+        Start free trial for a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            
+        Returns:
+            dict: The updated user document with decrypted fields, or None if update failed.
+        """
+        try:
+            expiration_date = datetime.utcnow() + timedelta(days=7)
+            update_fields = {
+                'subscription.plan': 'FREE',
+                'subscription.free_trial_used': True,
+                'subscription.free_trial_expiration_date': expiration_date,
+                'modified_at': datetime.utcnow()
+            }
+            self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
+            user = self.users.find_one({'_id': ObjectId(user_id)})
+            return self.decrypt_user(user)
+        except Exception as e:
+            logger.error(f"start_free_trial error for user_id {user_id}: {str(e)}")
+            return None
+
+    def check_trial_expired(self, user_id):
+        """
+        Check if user's free trial has expired.
+        
+        Args:
+            user_id (str): The ID of the user.
+            
+        Returns:
+            bool: True if trial has expired, False otherwise.
+        """
+        try:
+            user = self.get_user(user_id)
+            if not user or user.get('subscription', {}).get('plan') != 'FREE':
+                return False
+            
+            expiration_date = user.get('subscription', {}).get('free_trial_expiration_date')
+            if not expiration_date:
+                return False
+            
+            expiration_datetime = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
+            return datetime.utcnow() > expiration_datetime
+        except Exception as e:
+            logger.error(f"check_trial_expired error for user_id {user_id}: {str(e)}")
+            return False
+
+    def migrate_users_to_new_format(self):
+        """
+        Migrate all existing users from old format to new format.
+        This method should be run once to update the database structure.
+        
+        Returns:
+            dict: Migration results with counts of updated users.
+        """
+        try:
+            logger.info("Starting user migration to new format...")
+            old_format_users = list(self.users.find({
+                '$or': [
+                    {'subscription_status': {'$exists': True}},
+                    {'verification_code': {'$exists': True}},
+                    {'reset_code': {'$exists': True}}
+                ]
+            }))
+
+            migrated_count = 0
+            error_count = 0
+            
+            for user in old_format_users:
+                try:
+                    user_id = user['_id']
+                    update_fields = {}
+                    
+                    if 'subscription_status' in user:
+                        subscription_status = user.get('subscription_status', 'INACTIVE')
+                        if subscription_status == 'ACTIVE':
+                            plan = user.get('subscription_plan', 'MONTHLY')
+                        elif subscription_status == 'FREE_TRIAL':
+                            plan = 'FREE'
+                        elif subscription_status == 'CANCELLED':
+                            plan = 'CANCELLED'
+                        else:
+                            plan = 'NO_PLAN'
+                        
+                        update_fields['subscription'] = {
+                            'plan': plan,
+                            'free_trial_used': user.get('free_trial_used', False),
+                            'free_trial_expiration_date': user.get('free_trial_expiration_date'),
+                            'stripe_customer_id': user.get('stripe_customer_id'),
+                            'stripe_subscription_id': user.get('stripe_subscription_id')
+                        }
+                        
+                        update_fields['$unset'] = {
+                            'subscription_status': '',
+                            'subscription_plan': '',
+                            'free_trial_used': '',
+                            'free_trial_expiration_date': '',
+                            'stripe_customer_id': '',
+                            'stripe_subscription_id': ''
+                        }
+                    
+                    if any(field in user for field in ['verification_code', 'verification_expires_at', 'reset_code', 'reset_expires_at']):
+                        update_fields['miscellaneous'] = {
+                            'verification_code': user.get('verification_code'),
+                            'verification_expires_at': user.get('verification_expires_at'),
+                            'reset_code': user.get('reset_code'),
+                            'reset_expires_at': user.get('reset_expires_at')
+                        }
+                        
+                        if '$unset' not in update_fields:
+                            update_fields['$unset'] = {}
+                        update_fields['$unset'].update({
+                            'verification_code': '',
+                            'verification_expires_at': '',
+                            'reset_code': '',
+                            'reset_expires_at': ''
+                        })
+                    
+                    if update_fields:
+                        unset_fields = update_fields.pop('$unset', {})
+                        
+                        self.users.update_one(
+                            {'_id': user_id},
+                            {'$set': update_fields}
+                        )
+                        
+                        if unset_fields:
+                            self.users.update_one(
+                                {'_id': user_id},
+                                {'$unset': unset_fields}
+                            )
+                        
+                        migrated_count += 1
+                        logger.info(f"Migrated user {user_id}")
+                
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"Error migrating user {user.get('_id', 'unknown')}: {str(e)}")
+            
+            result = {
+                'total_users_found': len(old_format_users),
+                'migrated_successfully': migrated_count,
+                'errors': error_count
+            }
+            
+            logger.info(f"Migration completed: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Migration failed: {str(e)}")
+            return {'error': str(e)}
 
 
 db = database()
