@@ -169,21 +169,16 @@ class database:
             user_copy['email'] = decrypt(user_copy['encrypt_email'])
             user_copy['created_at'] = str(user_copy['created_at'])
             user_copy['modified_at'] = str(user_copy['modified_at'])
-            
-            # Handle subscription fields
             subscription = user_copy.get('subscription', {})
             if subscription.get('free_trial_expiration_date'):
                 subscription['free_trial_expiration_date'] = str(subscription['free_trial_expiration_date'])
             user_copy['subscription'] = subscription
-            
-            # Handle miscellaneous fields
             miscellaneous = user_copy.get('miscellaneous', {})
             if miscellaneous.get('verification_expires_at'):
                 miscellaneous['verification_expires_at'] = str(miscellaneous['verification_expires_at'])
             if miscellaneous.get('reset_expires_at'):
                 miscellaneous['reset_expires_at'] = str(miscellaneous['reset_expires_at'])
             user_copy['miscellaneous'] = miscellaneous
-            
             if 'emr_integration' in user_copy and user_copy['emr_integration']:
                 emr_integration = user_copy['emr_integration']
                 if 'encrypt_credentials' in emr_integration:
@@ -1335,8 +1330,6 @@ class database:
         """
         try:
             logger.info("Starting user migration to new format...")
-            
-            # Find all users with old format
             old_format_users = list(self.users.find({
                 '$or': [
                     {'subscription_status': {'$exists': True}},
@@ -1344,7 +1337,7 @@ class database:
                     {'reset_code': {'$exists': True}}
                 ]
             }))
-            
+
             migrated_count = 0
             error_count = 0
             
@@ -1353,7 +1346,6 @@ class database:
                     user_id = user['_id']
                     update_fields = {}
                     
-                    # Migrate subscription fields
                     if 'subscription_status' in user:
                         subscription_status = user.get('subscription_status', 'INACTIVE')
                         if subscription_status == 'ACTIVE':
@@ -1373,7 +1365,6 @@ class database:
                             'stripe_subscription_id': user.get('stripe_subscription_id')
                         }
                         
-                        # Remove old fields
                         update_fields['$unset'] = {
                             'subscription_status': '',
                             'subscription_plan': '',
@@ -1383,7 +1374,6 @@ class database:
                             'stripe_subscription_id': ''
                         }
                     
-                    # Migrate miscellaneous fields
                     if any(field in user for field in ['verification_code', 'verification_expires_at', 'reset_code', 'reset_expires_at']):
                         update_fields['miscellaneous'] = {
                             'verification_code': user.get('verification_code'),
@@ -1392,7 +1382,6 @@ class database:
                             'reset_expires_at': user.get('reset_expires_at')
                         }
                         
-                        # Add to unset fields
                         if '$unset' not in update_fields:
                             update_fields['$unset'] = {}
                         update_fields['$unset'].update({
@@ -1402,17 +1391,14 @@ class database:
                             'reset_expires_at': ''
                         })
                     
-                    # Perform the update
                     if update_fields:
                         unset_fields = update_fields.pop('$unset', {})
                         
-                        # Update with new structure
                         self.users.update_one(
                             {'_id': user_id},
                             {'$set': update_fields}
                         )
                         
-                        # Remove old fields
                         if unset_fields:
                             self.users.update_one(
                                 {'_id': user_id},

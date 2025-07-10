@@ -193,7 +193,7 @@ def check_subscription(request: CheckSubscriptionRequest):
         
         subscription = user.get('subscription', {})
         plan = subscription.get('plan', 'NO_PLAN')
-        has_active_subscription = plan in ['MONTHLY', 'YEARLY', 'FREE']
+        has_active_subscription = plan in ['MONTHLY', 'YEARLY', 'FREE', 'CUSTOM']
         
         if plan == 'FREE':
             trial_expired = db.check_trial_expired(request.user_id)
