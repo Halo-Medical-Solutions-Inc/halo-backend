@@ -110,7 +110,7 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
         if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
             officeally.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), request.patient_id, json.loads(visit.get("note")) if isinstance(visit.get("note"), str) else visit.get("note"))
         elif user.get("emr_integration").get("emr") == "ADVANCEMD":
-            pass
+            advancemd.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"), request.patient_id, json.loads(visit.get("note")) if isinstance(visit.get("note"), str) else visit.get("note"))
         else:
             logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
