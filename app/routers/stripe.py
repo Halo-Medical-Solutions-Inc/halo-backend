@@ -51,7 +51,7 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
         
         logger.info(f"Using price ID: {price_id} for plan: {plan_name}")
         
-        if not user.get('stripe_customer_id'):
+        if not user.get('subscription', {}).get('stripe_customer_id'):
             logger.info("Creating new Stripe customer")
             customer = stripe.Customer.create(
                 email=user['email'],
@@ -60,12 +60,12 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
             logger.info(f"Created customer: {customer.id}")
             db.update_user_subscription(
                 user_id=request.user_id,
-                subscription_status='INACTIVE',
+                plan='NO_PLAN',
                 stripe_customer_id=customer.id
             )
             customer_id = customer.id
         else:
-            customer_id = user['stripe_customer_id']
+            customer_id = user['subscription']['stripe_customer_id']
             logger.info(f"Using existing customer: {customer_id}")
         
         logger.info("Creating Stripe checkout session")
@@ -114,9 +114,8 @@ async def success(session_id: str, user_id: str, plan: str):
         if session.payment_status == 'paid':
             db.update_user_subscription(
                 user_id=user_id,
-                subscription_status='ACTIVE',
-                stripe_subscription_id=session.subscription,
-                subscription_plan=plan
+                plan=plan,
+                stripe_subscription_id=session.subscription
             )
             logger.info(f"Subscription activated for user {user_id} with plan {plan}")
             
@@ -161,7 +160,7 @@ def start_free_trial(request: StartFreeTrialRequest):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        if user.get('free_trial_used'):
+        if user.get('subscription', {}).get('free_trial_used'):
             raise HTTPException(status_code=400, detail="Free trial already used")
         
         updated_user = db.start_free_trial(request.user_id)
@@ -192,23 +191,26 @@ def check_subscription(request: CheckSubscriptionRequest):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        subscription_status = user.get('subscription_status', 'INACTIVE')
-        has_active_subscription = subscription_status == 'ACTIVE'
+        subscription = user.get('subscription', {})
+        plan = subscription.get('plan', 'NO_PLAN')
+        has_active_subscription = plan in ['MONTHLY', 'YEARLY', 'FREE']
         
-        if subscription_status == 'FREE_TRIAL':
+        if plan == 'FREE':
             trial_expired = db.check_trial_expired(request.user_id)
             if trial_expired:
-                db.update_user_subscription(request.user_id, 'INACTIVE')
+                db.update_user_subscription(request.user_id, 'NO_PLAN')
                 has_active_subscription = False
-                subscription_status = 'INACTIVE'
+                plan = 'NO_PLAN'
             else:
                 has_active_subscription = True
         
         return {
             "has_active_subscription": has_active_subscription,
-            "subscription_status": subscription_status,
-            "free_trial_used": user.get('free_trial_used', False),
-            "free_trial_expiration_date": user.get('free_trial_expiration_date')
+            "subscription": {
+                "plan": plan,
+                "free_trial_used": subscription.get('free_trial_used', False),
+                "free_trial_expiration_date": subscription.get('free_trial_expiration_date')
+            }
         }
         
     except Exception as e:

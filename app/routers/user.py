@@ -300,7 +300,7 @@ def start_free_trial(request: StartFreeTrialRequest):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        if user.get('free_trial_used'):
+        if user.get('subscription', {}).get('free_trial_used'):
             raise HTTPException(status_code=400, detail="Free trial already used")
         
         updated_user = db.start_free_trial(request.user_id)
@@ -331,23 +331,26 @@ def check_subscription(request: CheckSubscriptionRequest):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        subscription_status = user.get('subscription_status', 'INACTIVE')
-        has_active_subscription = subscription_status == 'ACTIVE'
+        subscription = user.get('subscription', {})
+        plan = subscription.get('plan', 'NO_PLAN')
+        has_active_subscription = plan in ['MONTHLY', 'YEARLY', 'FREE']
         
-        if subscription_status == 'FREE_TRIAL':
+        if plan == 'FREE':
             trial_expired = db.check_trial_expired(request.user_id)
             if trial_expired:
-                db.update_user_subscription(request.user_id, 'INACTIVE')
+                db.update_user_subscription(request.user_id, 'NO_PLAN')
                 has_active_subscription = False
-                subscription_status = 'INACTIVE'
+                plan = 'NO_PLAN'
             else:
                 has_active_subscription = True
         
         return {
             "has_active_subscription": has_active_subscription,
-            "subscription_status": subscription_status,
-            "free_trial_used": user.get('free_trial_used', False),
-            "free_trial_expiration_date": user.get('free_trial_expiration_date')
+            "subscription": {
+                "plan": plan,
+                "free_trial_used": subscription.get('free_trial_used', False),
+                "free_trial_expiration_date": subscription.get('free_trial_expiration_date')
+            }
         }
         
     except Exception as e:
@@ -375,12 +378,13 @@ def require_verified_user(session_id: str):
     if user['status'] != 'ACTIVE':
         raise HTTPException(status_code=403, detail="Email verification required")
     
-    subscription_status = user.get('subscription_status', 'INACTIVE')
-    if subscription_status == 'ACTIVE':
+    subscription = user.get('subscription', {})
+    plan = subscription.get('plan', 'NO_PLAN')
+    if plan in ['MONTHLY', 'YEARLY']:
         return user_id
-    elif subscription_status == 'FREE_TRIAL':
+    elif plan == 'FREE':
         if db.check_trial_expired(user_id):
-            db.update_user_subscription(user_id, 'INACTIVE')
+            db.update_user_subscription(user_id, 'NO_PLAN')
             raise HTTPException(status_code=402, detail="Free trial expired. Subscription required.")
         return user_id
     else:
