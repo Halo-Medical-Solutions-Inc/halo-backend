@@ -41,10 +41,10 @@ def create_checkout_session(request: CreateCheckoutSessionRequest):
         logger.info(f"User found: {user['email']}")
         
         if request.plan_type == 'monthly':
-            price_id = 'price_1Rj5CwLnOLAQsDbYmEAAOu7B'
+            price_id = 'price_1Rj4wsLnOLAQsDbYvZrM7f2K'
             plan_name = 'MONTHLY'
         elif request.plan_type == 'yearly':
-            price_id = 'price_1Rj6GXLnOLAQsDbY1BMrVimb'
+            price_id = 'price_1Rj4wdLnOLAQsDbYsxpL5YLb'
             plan_name = 'YEARLY'
         else:
             raise HTTPException(status_code=400, detail="Invalid plan type. Must be 'monthly' or 'yearly'")
