@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Literal
-from fastapi import File
+from fastapi import File, UploadFile
 
 """
 Pydantic models for request validation in the Halo Application.
@@ -389,3 +389,7 @@ class StartFreeTrialRequest(BaseModel):
 class PauseRecordingRequest(BaseModel):
     session_id: str
     visit_id: str
+
+class ProcessAudioFileRequest(BaseModel):
+    visit_id: str
+    file: UploadFile

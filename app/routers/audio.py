@@ -15,7 +15,7 @@ import PyPDF2
 import docx
 import json
 import chardet
-from app.models.requests import PauseRecordingRequest
+from app.models.requests import PauseRecordingRequest, ProcessAudioFileRequest
 
 """
 Audio Processing and Real-time Transcription Module for the Halo Application.
@@ -542,6 +542,44 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         logger.error(f"Error in finishing recording: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/process_audio_file")
+async def process_audio_file(request: ProcessAudioFileRequest):
+    """
+    Process an audio file and return its text content.
+    
+    Args:
+        request (ProcessAudioFileRequest): The request containing audio_file and other relevant data.
+    """
+    try:
+        file_content = await request.audio_file.read()
+        file_extension = request.audio_file.filename.lower().split('.')[-1] if '.' in request.audio_file.filename else ''
+        
+        if file_extension in ['mp3', 'wav', 'm4a']:
+            deepgram = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
+            payload: FileSource = {"buffer": file_content}
+            options = PrerecordedOptions(model="nova-3", smart_format=True)
+            response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
+            new_transcript = response.results.channels[0].alternatives[0].transcript
+
+        current_transcript = db.get_visit(request.visit_id)["transcript"]
+        timestamp_formatted = datetime.fromisoformat(request.timestamp).strftime("%H:%M:%S")
+        new_transcript = f"[{timestamp_formatted}] {new_transcript}"
+        if current_transcript: new_transcript = f"{current_transcript}\n{new_transcript}"
+        db.update_visit(request.visit_id, transcript=new_transcript)
+
+        broadcast_message = {
+            "type": "update_transcript",
+            "data": {
+                "visit_id": request.visit_id,
+                "transcript": new_transcript
+            }
+        }
+        await manager.broadcast('', user_id, broadcast_message)
+        return True
+    except Exception as e:
+        logger.error(f"Error in processing audio file: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
 @router.post("/process_file")
 async def process_file(file: UploadFile = File(...)):
     """
