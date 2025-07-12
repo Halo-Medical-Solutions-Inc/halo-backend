@@ -15,6 +15,7 @@ import PyPDF2
 import docx
 import json
 import chardet
+from app.models.requests import PauseRecordingRequest
 
 """
 Audio Processing and Real-time Transcription Module for the Halo Application.
@@ -598,3 +599,45 @@ async def process_file(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Error processing {file_extension} file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process {file_extension}: {str(e)}")
+
+@router.post("/pause_recording")
+async def pause_recording(request: PauseRecordingRequest):
+    """
+    Handle the pause recording request and calculate recording duration.
+    
+    Updates the visit status to "PAUSED" and calculates the total recording duration
+    by adding the current session time to any previous recording time.
+
+    Args:
+        request (PauseRecordingRequest): The request containing visit_id and other relevant data.
+        
+    Raises:
+        HTTPException: If there's an error updating the visit or broadcasting the message.
+        
+    Note:
+        Accumulates recording duration across multiple recording sessions.
+        Handles cases where recording_started_at might not be set.
+    """
+    try:
+        old_visit = db.get_visit(request.visit_id)
+        old_duration = int(old_visit["recording_duration"] if old_visit["recording_duration"] else 0)
+        if old_visit.get("recording_started_at"):
+            time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
+            new_duration = old_duration + time_diff
+        else:
+            new_duration = old_duration
+        visit = db.update_visit(request.visit_id, status="PAUSED", recording_duration=str(new_duration))
+        broadcast_message = {
+            "type": "pause_recording",
+            "data": {
+                "visit_id": request.visit_id,
+                "status": "PAUSED",
+                "modified_at": visit["modified_at"],
+                "recording_duration": visit["recording_duration"]
+            }
+        }
+        await manager.broadcast('', user_id, broadcast_message)
+        return True
+    except Exception as e:
+        logger.error(f"Error in pause recording: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

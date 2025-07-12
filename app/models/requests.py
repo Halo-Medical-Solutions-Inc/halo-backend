@@ -385,3 +385,7 @@ class CheckSubscriptionRequest(BaseModel):
 
 class StartFreeTrialRequest(BaseModel):
     user_id: str
+
+class PauseRecordingRequest(BaseModel):
+    session_id: str
+    visit_id: str
