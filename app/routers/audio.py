@@ -6,7 +6,7 @@ import os
 import time
 import certifi
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions, FileSource, DeepgramClientOptions
 from app.config import settings
 from app.services.connection import manager
@@ -543,16 +543,20 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/process_audio_file")
-async def process_audio_file(request: ProcessAudioFileRequest):
+async def process_audio_file(
+    visit_id: str = Form(...),
+    audio_file: UploadFile = File(...)
+):
     """
     Process an audio file and return its text content.
     
     Args:
-        request (ProcessAudioFileRequest): The request containing audio_file and other relevant data.
+        visit_id: The visit ID from form data
+        audio_file: The uploaded audio file
     """
     try:
-        file_content = await request.audio_file.read()
-        file_extension = request.audio_file.filename.lower().split('.')[-1] if '.' in request.audio_file.filename else ''
+        file_content = await audio_file.read()
+        file_extension = audio_file.filename.lower().split('.')[-1] if '.' in audio_file.filename else ''
         
         if file_extension in ['mp3', 'wav', 'm4a']:
             deepgram = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
@@ -561,21 +565,22 @@ async def process_audio_file(request: ProcessAudioFileRequest):
             response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
             new_transcript = response.results.channels[0].alternatives[0].transcript
 
-        current_transcript = db.get_visit(request.visit_id)["transcript"]
-        timestamp_formatted = datetime.fromisoformat(request.timestamp).strftime("%H:%M:%S")
+        current_transcript = db.get_visit(visit_id)["transcript"]
+        timestamp_formatted = datetime.utcnow().strftime("%H:%M:%S")            
         new_transcript = f"[{timestamp_formatted}] {new_transcript}"
-        if current_transcript: new_transcript = f"{current_transcript}\n{new_transcript}"
-        db.update_visit(request.visit_id, transcript=new_transcript)
-
+        if current_transcript: 
+            new_transcript = f"{current_transcript}\n{new_transcript}"
+        db.update_visit(visit_id, transcript=new_transcript)
+        
         broadcast_message = {
             "type": "update_transcript",
             "data": {
-                "visit_id": request.visit_id,
+                "visit_id": visit_id,
                 "transcript": new_transcript
             }
         }
-        await manager.broadcast('', user_id, broadcast_message)
-        return True
+        await manager.broadcast('', visit_id, broadcast_message)
+        return {"success": True}
     except Exception as e:
         logger.error(f"Error in processing audio file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
