@@ -6,7 +6,7 @@ import os
 import time
 import certifi
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions, FileSource, DeepgramClientOptions
 from app.config import settings
 from app.services.connection import manager
@@ -15,6 +15,7 @@ import PyPDF2
 import docx
 import json
 import chardet
+from app.models.requests import PauseRecordingRequest, ProcessAudioFileRequest
 
 """
 Audio Processing and Real-time Transcription Module for the Halo Application.
@@ -541,6 +542,49 @@ async def handle_finish_recording(websocket_session_id: str, user_id: str, data:
         logger.error(f"Error in finishing recording: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/process_audio_file")
+async def process_audio_file(
+    visit_id: str = Form(...),
+    audio_file: UploadFile = File(...)
+):
+    """
+    Process an audio file and return its text content.
+    
+    Args:
+        visit_id: The visit ID from form data
+        audio_file: The uploaded audio file
+    """
+    try:
+        file_content = await audio_file.read()
+        file_extension = audio_file.filename.lower().split('.')[-1] if '.' in audio_file.filename else ''
+        
+        if file_extension in ['mp3', 'wav', 'm4a']:
+            deepgram = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
+            payload: FileSource = {"buffer": file_content}
+            options = PrerecordedOptions(model="nova-3", smart_format=True)
+            response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
+            new_transcript = response.results.channels[0].alternatives[0].transcript
+
+        current_transcript = db.get_visit(visit_id)["transcript"]
+        timestamp_formatted = datetime.utcnow().strftime("%H:%M:%S")            
+        new_transcript = f"[{timestamp_formatted}] {new_transcript}"
+        if current_transcript: 
+            new_transcript = f"{current_transcript}\n{new_transcript}"
+        db.update_visit(visit_id, transcript=new_transcript)
+        
+        broadcast_message = {
+            "type": "update_transcript",
+            "data": {
+                "visit_id": visit_id,
+                "transcript": new_transcript
+            }
+        }
+        await manager.broadcast('', visit_id, broadcast_message)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error in processing audio file: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
 @router.post("/process_file")
 async def process_file(file: UploadFile = File(...)):
     """
@@ -598,3 +642,45 @@ async def process_file(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Error processing {file_extension} file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process {file_extension}: {str(e)}")
+
+@router.post("/pause_recording")
+async def pause_recording(request: PauseRecordingRequest):
+    """
+    Handle the pause recording request and calculate recording duration.
+    
+    Updates the visit status to "PAUSED" and calculates the total recording duration
+    by adding the current session time to any previous recording time.
+
+    Args:
+        request (PauseRecordingRequest): The request containing visit_id and other relevant data.
+        
+    Raises:
+        HTTPException: If there's an error updating the visit or broadcasting the message.
+        
+    Note:
+        Accumulates recording duration across multiple recording sessions.
+        Handles cases where recording_started_at might not be set.
+    """
+    try:
+        old_visit = db.get_visit(request.visit_id)
+        old_duration = int(old_visit["recording_duration"] if old_visit["recording_duration"] else 0)
+        if old_visit.get("recording_started_at"):
+            time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
+            new_duration = old_duration + time_diff
+        else:
+            new_duration = old_duration
+        visit = db.update_visit(request.visit_id, status="PAUSED", recording_duration=str(new_duration))
+        broadcast_message = {
+            "type": "pause_recording",
+            "data": {
+                "visit_id": request.visit_id,
+                "status": "PAUSED",
+                "modified_at": visit["modified_at"],
+                "recording_duration": visit["recording_duration"]
+            }
+        }
+        await manager.broadcast('', user_id, broadcast_message)
+        return True
+    except Exception as e:
+        logger.error(f"Error in pause recording: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

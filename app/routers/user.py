@@ -469,25 +469,25 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 pass
         
     except WebSocketDisconnect:
-        for visit_id in active_recordings:
-            old_visit = db.get_visit(visit_id)
-            old_duration = int(old_visit["recording_duration"] if old_visit["recording_duration"] else 0)
-            if old_visit.get("recording_started_at"):
-                time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
-                new_duration = old_duration + time_diff
-            else:
-                new_duration = old_duration
-            visit = db.update_visit(visit_id, status="PAUSED", recording_duration=str(new_duration))
-            broadcast_message = {
-                "type": "pause_recording",
-                "data": {
-                    "visit_id": visit_id,
-                    "status": "PAUSED",
-                    "modified_at": visit["modified_at"],
-                    "recording_duration": visit["recording_duration"]
-                }
-            }
-            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
+        # for visit_id in active_recordings:
+        #     old_visit = db.get_visit(visit_id)
+        #     old_duration = int(old_visit["recording_duration"] if old_visit["recording_duration"] else 0)
+        #     if old_visit.get("recording_started_at"):
+        #         time_diff = int((datetime.utcnow() - datetime.fromisoformat(old_visit["recording_started_at"])).total_seconds())
+        #         new_duration = old_duration + time_diff
+        #     else:
+        #         new_duration = old_duration
+        #     visit = db.update_visit(visit_id, status="PAUSED", recording_duration=str(new_duration))
+        #     broadcast_message = {
+        #         "type": "pause_recording",
+        #         "data": {
+        #             "visit_id": visit_id,
+        #             "status": "PAUSED",
+        #             "modified_at": visit["modified_at"],
+        #             "recording_duration": visit["recording_duration"]
+        #         }
+        #     }
+        #     await manager.broadcast(websocket_session_id, user_id, broadcast_message)
         await manager.disconnect(websocket, websocket_session_id, user_id)
     except Exception as e:
         logger.error(f"Error in websocket: {e}")
