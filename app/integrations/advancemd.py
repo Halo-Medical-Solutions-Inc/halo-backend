@@ -4,17 +4,14 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 from typing import List, Dict, Optional
+from app.services.logging import logger
 
 INSTRUCTIONS = """
-TO DO
+Generate everything to the best of your ability.
 """
 JSON_SCHEMA = """
 {
-    "soap_notes": {
-        "ChiefComplaint": "string",
-        "HOPI": "string",
-        "MedicalHistory": "string",
-    }
+    "note": "string; use \n to separate paragraphs"
 }
 """
 
@@ -154,3 +151,135 @@ def get_patients(username: str, password: str, office_key: str, app_name: str, t
         raise Exception(f"XML parsing error: {str(e)}")
     except Exception as e:
         raise Exception(f"Error retrieving patients: {str(e)}")
+
+
+def create_note(username: str, password: str, office_key: str, app_name: str,
+                patient_id: str, payload: dict) -> bool:
+    """
+    Self-contained function to authenticate and create a note in AdvancedMD.
+    
+    Args:
+        username: AdvancedMD username
+        password: AdvancedMD password  
+        office_key: AdvancedMD office key
+        app_name: AdvancedMD app name
+        patient_id: Patient ID to attach the note to
+        payload: Payload containing note content text
+        
+    Returns:
+        bool: True if note was created successfully, False otherwise
+    """
+    
+    def _login() -> Optional[tuple]:
+        """Login and get token and webserver URL."""
+        initial_api_url = "https://partnerlogin.advancedmd.com/practicemanager/xmlrpc/processrequest.aspx"
+        current_time = datetime.now().strftime("%m/%d/%Y %I:%M:%S %p")
+        
+        login_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ppmdmsg action="login" class="login" msgtime="{current_time}" username="{username}" psw="{password}" officecode="{office_key}" appname="{app_name}"/>
+"""
+        
+        headers = {'Content-Type': 'text/xml', 'Accept': 'text/xml'}
+        
+        try:
+            response = requests.post(initial_api_url, headers=headers, data=login_xml)
+            response.raise_for_status()
+            
+            root = ET.fromstring(response.text)
+            results = root.find('Results')
+            
+            if results is not None and results.get('success') == '0':
+                usercontext = results.find('usercontext')
+                if usercontext is not None:
+                    webserver = usercontext.get('webserver')
+                    if webserver:
+                        api_version = webserver.split('/')[-2]
+                        redirect_url = f"https://providerapi.advancedmd.com/processrequest/{api_version}/{app_name}/xmlrpc/processrequest.aspx"
+                        
+                        response = requests.post(redirect_url, headers=headers, data=login_xml)
+                        response.raise_for_status()
+                        root = ET.fromstring(response.text)
+                        results = root.find('Results')
+
+            if results is not None and results.get('success') == '1':
+                usercontext = results.find('usercontext')
+                if usercontext is not None:
+                    token = usercontext.text
+                    webserver_url = usercontext.get('webserver')
+                    return token, webserver_url
+                    
+            return None
+            
+        except Exception as e:
+            logger.error(f"Login failed: {e}")
+            return None
+    
+    def _create_halo_note(token: str, webserver_url: str) -> bool:
+        """Create note using Halo Custom template."""
+        TEMPLATE_NAME = "Halo Custom"
+        PAGE_INDEX = "1"
+        FIELD_NAME = "note"
+        FIELD_ID = "228173"
+        PROFILE_ID = "485"
+        
+        now = datetime.now()
+        msgtime = now.strftime("%m/%d/%Y %I:%M:%S %p")
+        note_datetime = now.strftime("%m/%d/%Y %I:%M:%S %p")
+        
+        xml = f'''<ppmdmsg action="addehrnote" class="api" msgtime="{msgtime}" templatename="{TEMPLATE_NAME}" patientid="{patient_id}" profileid="{PROFILE_ID}" notedatetime="{note_datetime}">
+    <pagelist>
+        <page pageindex="{PAGE_INDEX}" pagename="Note">
+            <fieldlist>
+                <field pageindex="{PAGE_INDEX}" ordinal="{FIELD_ID}" fieldname="{FIELD_NAME}" requiredflag="0" enabledflag="-1" type="1" value="{payload['note']}" />
+            </fieldlist>
+        </page>
+    </pagelist>
+</ppmdmsg>'''
+        
+        api_version = webserver_url.split('/')[-2]
+        api_url = f"https://providerapi.advancedmd.com/processrequest/{api_version}/{app_name}/xmlrpc/processrequest.aspx"
+        
+        headers = {
+            'Content-Type': 'text/xml',
+            'Accept': 'text/xml',
+            'Cookie': f'token={token}'
+        }
+        
+        try:
+            response = requests.post(api_url, headers=headers, data=xml)
+            response.raise_for_status()
+            
+            root = ET.fromstring(response.text)
+            
+            results_elem = root.find('Results')
+            if results_elem is not None and results_elem.attrib.get('id'):
+                return True
+                
+            if root.attrib.get('newid'):
+                return True
+                
+            error_elem = root.find('Error')
+            if error_elem is not None:
+                fault = error_elem.find('.//Fault')
+                if fault is not None:
+                    return False
+                    
+            if results_elem is not None and error_elem is None:
+                return True
+                
+            return False
+            
+        except Exception as e:
+            logger.error(f"Note creation failed: {e}")
+            return False
+    
+    try:
+        login_result = _login()
+        if not login_result:
+            return False
+        token, webserver_url = login_result
+        return _create_halo_note(token, webserver_url)
+        
+    except Exception as e:
+        logger.error(f"Error in create_note: {e}")
+        return False

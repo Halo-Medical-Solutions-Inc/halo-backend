@@ -259,6 +259,21 @@ async def get_all_default_templates():
     return templates
 
     
+@router.post("/migrate_users")
+async def migrate_users():
+    """
+    Migrate all existing users from old format to new format.
+    
+    This endpoint should be run once to update the database structure.
+    It will convert all users from the old subscription/miscellaneous format
+    to the new nested structure.
+    
+    Returns:
+        dict: Migration results with counts of updated users.
+    """
+    result = db.migrate_users_to_new_format()
+    return result
+
 @router.post("/delete_all_visits_for_user")
 def delete_all_visits_for_user(request: DeleteAllVisitsForUserRequest):
     """

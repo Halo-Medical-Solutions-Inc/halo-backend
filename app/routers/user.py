@@ -1,15 +1,23 @@
-from app.models.requests import SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, WebSocketMessage
+from app.models.requests import (
+    SignInRequest, SignUpRequest, GetUserRequest, GetTemplatesRequest, GetVisitsRequest, 
+    WebSocketMessage, VerifyEmailRequest, ResendVerificationRequest, 
+    RequestPasswordResetRequest, VerifyResetCodeRequest, ResetPasswordRequest,
+    CreateCheckoutSessionRequest, CheckSubscriptionRequest, StartFreeTrialRequest
+)
 from fastapi import APIRouter, HTTPException
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from app.database.database import db
 from app.services.connection import manager
+from app.services.email import email_service
 from app.routers.template import handle_create_template, handle_update_template, handle_delete_template, handle_duplicate_template, handle_polish_template
 from app.routers.visit import handle_create_visit, handle_update_visit, handle_delete_visit, handle_generate_note
 from app.routers.audio import handle_start_recording, handle_pause_recording, handle_resume_recording, handle_finish_recording
 from app.services.logging import logger
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from pydantic import BaseModel
+from bson import ObjectId
 
 """
 User Router for managing user operations.
@@ -29,18 +37,30 @@ def signin(request: SignInRequest):
         request (SignInRequest): Request containing email and password.
         
     Returns:
-        dict: Session information for the authenticated user.
+        dict: Session information for the authenticated user or verification needed response.
         
     Raises:
         HTTPException: If authentication fails with 401 status code.
         
     Note:
+        If user is unverified, sends new verification code and returns verification needed status.
         Creates a new session for the user upon successful authentication.
     """
     user = db.verify_user(request.email, request.password)
     if user:
-        session = db.create_session(user['user_id'])
-        return session
+        if user['status'] == 'UNVERIFIED':
+            code = email_service.generate_code()
+            db.set_verification_code(user['user_id'], code)
+            email_service.send_verification_email(user['email'], code)
+            
+            session = db.create_session(user['user_id'])
+            return {
+                **session,
+                "verification_needed": True
+            }
+        else:
+            session = db.create_session(user['user_id'])
+            return session
     else:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
@@ -53,18 +73,26 @@ def signup(request: SignUpRequest):
         request (SignUpRequest): Request containing user registration details.
         
     Returns:
-        dict: Session information for the newly created user.
+        dict: Session information with verification needed flag.
         
     Raises:
         HTTPException: If user creation fails with 400 status code.
         
     Note:
-        Creates a new session for the user upon successful registration.
+        Sends verification email to the user upon successful registration.
+        User status is set to UNVERIFIED until email is verified.
     """
     user = db.create_user(request.name, request.email, request.password)
     if user:
+        code = email_service.generate_code()
+        db.set_verification_code(user['user_id'], code)
+        email_service.send_verification_email(user['email'], code)
+        
         session = db.create_session(user['user_id'])
-        return session
+        return {
+            **session,
+            "verification_needed": True
+        }
     else:
         raise HTTPException(status_code=400, detail="Failed to create user")
 
@@ -84,6 +112,7 @@ def get_user(request: GetUserRequest):
         
     Note:
         Validates the session before retrieving user information.
+        Allows access for unverified users (they need to get their info to check verification status).
     """
     user_id = db.is_session_valid(request.session_id)
     if user_id:
@@ -104,17 +133,14 @@ def get_templates(request: GetTemplatesRequest):
         list: List of templates associated with the user.
         
     Raises:
-        HTTPException: If session is invalid with 401 status code.
+        HTTPException: If session is invalid (401) or user is unverified (403).
         
     Note:
-        Validates the session before retrieving template information.
+        Requires a verified user to access templates.
     """
-    user_id = db.is_session_valid(request.session_id)
-    if user_id:
-        templates = db.get_user_templates(user_id)
-        return templates
-    else:
-        raise HTTPException(status_code=401, detail="Invalid session")
+    user_id = require_verified_user(request.session_id)
+    templates = db.get_user_templates(user_id)
+    return templates
 
 @router.post("/get_visits")
 def get_visits(request: GetVisitsRequest):
@@ -128,18 +154,241 @@ def get_visits(request: GetVisitsRequest):
         list: List of visits associated with the user.
         
     Raises:
-        HTTPException: If session is invalid with 401 status code.
+        HTTPException: If session is invalid (401) or user is unverified (403).
         
     Note:
-        Validates the session before retrieving visit information.
+        Requires a verified user to access visits.
         Supports pagination when subset is False.
     """
+    user_id = require_verified_user(request.session_id)
+    visits = db.get_user_visits(user_id, request.subset, request.offset, request.limit)
+    return visits
+
+@router.post("/verify-email")
+def verify_email(request: VerifyEmailRequest):
+    """
+    Verify email with the provided code.
+    
+    Args:
+        request (VerifyEmailRequest): Request containing session ID and verification code.
+        
+    Returns:
+        dict: Success message if verification is successful.
+        
+    Raises:
+        HTTPException: If session is invalid (401) or verification fails (400).
+    """
     user_id = db.is_session_valid(request.session_id)
-    if user_id:
-        visits = db.get_user_visits(user_id, request.subset, request.offset, request.limit)
-        return visits
-    else:
+    if not user_id:
         raise HTTPException(status_code=401, detail="Invalid session")
+    
+    if db.verify_email_code(user_id, request.code):
+        return {"message": "Email verified successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+
+@router.post("/resend-verification")
+def resend_verification(request: ResendVerificationRequest):
+    """
+    Resend verification email to the user.
+    
+    Args:
+        request (ResendVerificationRequest): Request containing session ID.
+        
+    Returns:
+        dict: Success message if email is sent.
+        
+    Raises:
+        HTTPException: If session is invalid (401) or user is already verified (400).
+    """
+    user_id = db.is_session_valid(request.session_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    user = db.get_user(user_id)
+    if user['status'] != 'UNVERIFIED':
+        raise HTTPException(status_code=400, detail="User is already verified")
+    
+    code = email_service.generate_code()
+    db.set_verification_code(user_id, code)
+    email_service.send_verification_email(user['email'], code)
+    
+    return {"message": "Verification email sent"}
+
+@router.post("/request-password-reset")
+def request_password_reset(request: RequestPasswordResetRequest):
+    """
+    Request password reset for the given email.
+    
+    Args:
+        request (RequestPasswordResetRequest): Request containing email address.
+        
+    Returns:
+        dict: Success message (always returns success for security).
+        
+    Note:
+        Always returns success to prevent email enumeration attacks.
+    """
+    user = db.get_user_by_email(request.email)
+    
+    if user and user['status'] == 'ACTIVE':
+        code = email_service.generate_code()
+        db.set_reset_code(user['user_id'], code)
+        email_service.send_password_reset_email(user['email'], code)
+    
+    return {"message": "If the email exists, a reset code has been sent"}
+
+@router.post("/verify-reset-code")
+def verify_reset_code(request: VerifyResetCodeRequest):
+    """
+    Verify password reset code.
+    
+    Args:
+        request (VerifyResetCodeRequest): Request containing email and reset code.
+        
+    Returns:
+        dict: Success message if code is valid.
+        
+    Raises:
+        HTTPException: If code is invalid or expired (400).
+    """
+    user_id = db.verify_reset_code(request.email, request.code)
+    if user_id:
+        return {"message": "Reset code verified", "valid": True}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+
+@router.post("/reset-password")
+def reset_password(request: ResetPasswordRequest):
+    """
+    Reset password with the provided reset code.
+    
+    Args:
+        request (ResetPasswordRequest): Request containing email, reset code, and new password.
+        
+    Returns:
+        dict: Success message if password is reset.
+        
+    Raises:
+        HTTPException: If code is invalid (400) or reset fails (500).
+    """
+    user_id = db.verify_reset_code(request.email, request.code)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+    
+    if db.reset_password(user_id, request.new_password):
+        return {"message": "Password reset successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to reset password")
+
+@router.post("/start-free-trial")
+def start_free_trial(request: StartFreeTrialRequest):
+    """
+    Start free trial for a user.
+    
+    Args:
+        request (StartFreeTrialRequest): Request containing user_id.
+        
+    Returns:
+        dict: Updated user information.
+        
+    Raises:
+        HTTPException: If user not found or trial already used.
+    """
+    try:
+        user = db.get_user(request.user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if user.get('subscription', {}).get('free_trial_used'):
+            raise HTTPException(status_code=400, detail="Free trial already used")
+        
+        updated_user = db.start_free_trial(request.user_id)
+        if not updated_user:
+            raise HTTPException(status_code=500, detail="Failed to start free trial")
+        
+        return {"message": "Free trial started successfully", "user": updated_user}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Start free trial error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to start free trial")
+
+@router.post("/check-subscription")
+def check_subscription(request: CheckSubscriptionRequest):
+    """
+    Check if user has an active subscription or valid free trial.
+    
+    Args:
+        request (CheckSubscriptionRequest): Request containing user_id.
+        
+    Returns:
+        dict: Contains subscription status information.
+    """
+    try:
+        user = db.get_user(request.user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        subscription = user.get('subscription', {})
+        plan = subscription.get('plan', 'NO_PLAN')
+        has_active_subscription = plan in ['MONTHLY', 'YEARLY', 'FREE', 'CUSTOM']
+        
+        if plan == 'FREE':
+            trial_expired = db.check_trial_expired(request.user_id)
+            if trial_expired:
+                db.update_user_subscription(request.user_id, 'NO_PLAN')
+                has_active_subscription = False
+                plan = 'NO_PLAN'
+            else:
+                has_active_subscription = True
+        
+        return {
+            "has_active_subscription": has_active_subscription,
+            "subscription": {
+                "plan": plan,
+                "free_trial_used": subscription.get('free_trial_used', False),
+                "free_trial_expiration_date": subscription.get('free_trial_expiration_date')
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Check subscription error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to check subscription")
+
+def require_verified_user(session_id: str):
+    """
+    Helper function to validate that a session belongs to a verified user with active subscription or valid trial.
+    
+    Args:
+        session_id (str): The session ID to validate.
+        
+    Returns:
+        str: The user_id if valid and verified.
+        
+    Raises:
+        HTTPException: If session is invalid (401) or user is unverified (403) or subscription required (402).
+    """
+    user_id = db.is_session_valid(session_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    user = db.get_user(user_id)
+    if user['status'] != 'ACTIVE':
+        raise HTTPException(status_code=403, detail="Email verification required")
+    
+    subscription = user.get('subscription', {})
+    plan = subscription.get('plan', 'NO_PLAN')
+    if plan in ['MONTHLY', 'YEARLY', 'CUSTOM']:
+        return user_id
+    elif plan == 'FREE':
+        if db.check_trial_expired(user_id):
+            db.update_user_subscription(user_id, 'NO_PLAN')
+            raise HTTPException(status_code=402, detail="Free trial expired. Subscription required.")
+        return user_id
+    else:
+        raise HTTPException(status_code=402, detail="Active subscription required")
 
 async def handle_update_user(websocket_session_id: str, user_id: str, data: dict):
     """
