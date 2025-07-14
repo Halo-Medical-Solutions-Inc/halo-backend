@@ -5,6 +5,7 @@ from app.models.requests import VerifyEMRIntegrationRequest, GetPatientsEMRInteg
 from app.integrations import officeally, advancemd
 from app.services.connection import manager
 import json
+from app.services.anthropic import ask_claude_json
 
 router = APIRouter()
 
@@ -34,10 +35,8 @@ async def verify(request: VerifyEMRIntegrationRequest):
     try:
         if request.emr == "OFFICE_ALLY":
             verified = officeally.verify(request.credentials["username"], request.credentials["password"])
-            instructions = officeally.INSTRUCTIONS
         elif request.emr == "ADVANCEMD":
             verified = advancemd.verify(request.credentials["username"], request.credentials["password"], request.credentials["office_key"], request.credentials["app_name"])
-            instructions = advancemd.INSTRUCTIONS
         else:
             logger.error(f"Unsupported EMR: {request.emr}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
@@ -52,13 +51,6 @@ async def verify(request: VerifyEMRIntegrationRequest):
         broadcast_message = {
             "type": "update_user",
             "data": user
-        }
-        await manager.broadcast('', user_id, broadcast_message)
-
-        template = db.create_template(user_id=user_id, name=request.emr.replace('_', ' ').title(), instructions=instructions, status="EMR")
-        broadcast_message = {
-            "type": "create_template",
-            "data": template
         }
         await manager.broadcast('', user_id, broadcast_message)
 
@@ -107,10 +99,17 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
         user = db.get_user(user_id)
         visit = db.get_visit(request.visit_id)
 
+        instructions = "Take the existing SOAP note and do NOT edit or concise down any of the words, move the corresponding parts of the note into the Office Ally JSON schema. Keep the content and formatting pretty much exactly the same. Just map the parts.  Ie: Chief complaint content goes into the chief complaint part of the JSON"
+        instructions += visit.get("note")
+
         if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
-            officeally.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), request.patient_id, json.loads(visit.get("note")) if isinstance(visit.get("note"), str) else visit.get("note"))
+            json_schema = officeally.JSON_SCHEMA
+            note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
+            officeally.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), request.patient_id, note)
         elif user.get("emr_integration").get("emr") == "ADVANCEMD":
-            advancemd.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"), request.patient_id, json.loads(visit.get("note")) if isinstance(visit.get("note"), str) else visit.get("note"))
+            json_schema = advancemd.JSON_SCHEMA
+            note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
+            advancemd.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"), request.patient_id, note)
         else:
             logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
