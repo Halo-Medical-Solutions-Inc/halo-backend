@@ -174,13 +174,9 @@ def create_note(username: str, password: str, patient_id: str, payload: Dict) ->
         note_payload = {"patient_id": patient_id, **{k: payload.get(k, {} if k in ["vital_signs", "soap_notes", "encounter_details"] else []) 
                        for k in ["diagnosis_codes", "procedure_codes", "vital_signs", "soap_notes", "encounter_details"]}}
         
-        print(note_payload)
-
         response = requests.post(f"{SANDBOX_BASE_URL}/ally/create-progressnotes", 
                                headers={"INTEGURU-TOKEN": access_token, "Content-Type": "application/json"}, 
                                json=note_payload)
-
-        print(response.json())
         
         if response.status_code == 200:
             logger.info(f"Progress note created successfully: {response.json()}")
