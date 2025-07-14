@@ -3,7 +3,7 @@ from app.services.connection import manager
 from app.services.logging import logger
 from fastapi import HTTPException
 from app.services.prompts import get_instructions
-from app.services.anthropic import ask_claude_stream, ask_claude_json, ask_claude
+from app.services.anthropic import ask_claude_stream, ask_claude
 from datetime import datetime
 from fastapi import APIRouter
 import asyncio

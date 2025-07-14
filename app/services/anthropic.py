@@ -1,5 +1,6 @@
 import anthropic
 from app.config import settings
+import json
 
 """
 Anthropic Service for the Halo Application.
@@ -81,4 +82,4 @@ async def ask_claude_json(message, json_schema, callback = None, model=MODEL, ma
             full_text += text
             if callback:
                 await callback(full_text)
-    return "{" + full_text
+    return json.loads("{" + full_text)
