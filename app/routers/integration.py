@@ -6,6 +6,7 @@ from app.integrations import officeally, advancemd
 from app.services.connection import manager
 import json
 from app.services.anthropic import ask_claude_json
+from datetime import datetime
 
 router = APIRouter()
 
@@ -99,7 +100,7 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
         user = db.get_user(user_id)
         visit = db.get_visit(request.visit_id)
 
-        instructions = "Take the existing SOAP note and do NOT edit or concise down any of the words, move the corresponding parts of the note into the Office Ally JSON schema. Keep the content and formatting pretty much exactly the same. Just map the parts.  Ie: Chief complaint content goes into the chief complaint part of the JSON"
+        instructions = "Today's date and time: " + datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + "\n\n" + "Take the existing SOAP note and do NOT edit or concise down any of the words, move the corresponding parts of the note into the Office Ally JSON schema. Keep the content and formatting pretty much exactly the same. Just map the parts.  Ie: Chief complaint content goes into the chief complaint part of the JSON"
         instructions += visit.get("note")
 
         if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
