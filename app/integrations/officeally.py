@@ -16,17 +16,17 @@ JSON_SCHEMA = """
    "soap_notes": {
     "ChiefComplaint": "string",
     "HOPI": "string",
-    "MedicalHistory": "string",
-    "SurgicalHistory": "string",
-    "FamilyHistory": "string",
-    "SocialHistory": "string",
-    "Allergies": "string",
-    "CurrentMedications": "string",
-    "ROS_Constitutional": "string",
+    "MedicalHistory": "string or null (if empty, use null instead of empty string)",
+    "SurgicalHistory": "string or null (if empty, use null instead of empty string)",
+    "FamilyHistory": "string or null (if empty, use null instead of empty string)",
+    "SocialHistory": "string or null (if empty, use null instead of empty string)",
+    "Allergies": "string or null (if empty, use null instead of empty string)",
+    "CurrentMedications": "string or null (if empty, use null instead of empty string)",
+    "ROS_Constitutional": "string or null (if empty, use null instead of empty string)",
     "PE_General": "string",
-    "TestResults_ECG": "string",
-    "TestResults_Imaging": "string",
-    "TestResults_Lab": "string",
+    "TestResults_ECG": "string or null (if empty, use null instead of empty string)",
+    "TestResults_Imaging": "string or null (if empty, use null instead of empty string)",
+    "TestResults_Lab": "string or null (if empty, use null instead of empty string)",
     "AssessmentNotes_ICD10": "string",
     "PlanNotes": "string",
     "PatientInstructions": "string"
@@ -39,13 +39,13 @@ JSON_SCHEMA = """
   },
   "diagnosis_codes": [
     {
-      "code": "string",
+      "code": "string (required, cannot be empty)",
       "description": "string"
     }
   ],
   "procedure_codes": [
     {
-      "code": "string",
+      "code": "string (required, cannot be empty)",
       "description": "string",
       "pos": "11",
       "fee": "string",
@@ -53,9 +53,9 @@ JSON_SCHEMA = """
     }
   ],
   "encounter_details": {
-    "EncounterDate_Month": "string",
-    "EncounterDate_Day": "string",
-    "EncounterDate_Year": "string",
+    "EncounterDate_Month": "string (required)",
+    "EncounterDate_Day": "string (required)",
+    "EncounterDate_Year": "string (required)",
     "TreatingProvider": "198417",
     "Office": "166396",
     "EncounterType": "1"

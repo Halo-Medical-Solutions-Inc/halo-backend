@@ -3,7 +3,7 @@ from app.services.connection import manager
 from app.services.logging import logger
 from fastapi import HTTPException
 from app.services.prompts import get_instructions
-from app.services.anthropic import ask_claude_stream, ask_claude_json, ask_claude
+from app.services.anthropic import ask_claude_stream, ask_claude
 from datetime import datetime
 from fastapi import APIRouter
 import asyncio
@@ -178,41 +178,6 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
                     "note": "Insufficient transcript, please record again."
                 }
             })
-            return
-        
-        if template.get("status") == "EMR":
-            db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
-            broadcast_message = {
-                "type": "note_generated",
-                "data": {
-                    "visit_id": data["visit_id"],
-                    "status": "GENERATING_NOTE"
-                }
-            }
-            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
-
-            JSON_SCHEMA = ""
-            if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
-                JSON_SCHEMA = officeally.JSON_SCHEMA
-            elif user.get("emr_integration").get("emr") == "ADVANCEMD":
-                JSON_SCHEMA = advancemd.JSON_SCHEMA
-            else:
-                logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
-                raise HTTPException(status_code=400, detail="Unsupported EMR")
-                return
-
-            instructions = "Today's date: " + datetime.utcnow().strftime("%Y-%m-%d") + "\n\n" + visit.get("transcript") + "\n\n" + visit.get("additional_context") + "\n\n" + template.get("instructions")
-            visit = db.update_visit(visit_id=data["visit_id"], status="FINISHED", note=await ask_claude_json(instructions, JSON_SCHEMA, model="claude-sonnet-4-20250514", max_tokens=64000), template_modified_at=str(datetime.utcnow()))
-            broadcast_message = {
-                "type": "note_generated",
-                "data": {
-                    "visit_id": data["visit_id"],
-                    "status": "FINISHED",
-                    "note": visit.get("note"),
-                    "template_modified_at": visit.get("template_modified_at")
-                }
-            }
-            await manager.broadcast(websocket_session_id, user_id, broadcast_message)
             return
         
         db.update_visit(visit_id=data["visit_id"], status="GENERATING_NOTE")
