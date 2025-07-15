@@ -36,6 +36,7 @@ class SignUpRequest(BaseModel):
     name: str
     email: str
     password: str
+    custom: bool = False
 
 class GetUserRequest(BaseModel):
     """
