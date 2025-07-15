@@ -214,7 +214,7 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
                 user.get("user_specialty"),
                 user.get("name")
             )
-            tasks.append(generate_section(section['name'], section_message, handle_section_response))
+            tasks.append(generate_section(section['name'], section_message, handle_section_response, user.get("note_generation_quality")))
         await asyncio.gather(*tasks)
         
         final_note = ""
@@ -274,7 +274,7 @@ def parse_sections(template_instructions):
     
     return sections
 
-async def generate_section(section_name, message, callback):
+async def generate_section(section_name, message, callback, quality='BASIC'):
     """
     Generate a single section using Claude AI.
     
@@ -283,9 +283,29 @@ async def generate_section(section_name, message, callback):
         message (str): The message to send to Claude.
         callback (function): Callback function to handle the response.
     """
+    model = "claude-3-7-sonnet-20250219"
+    tokens = 64000
+    thinking = False
+
+    if quality == 'BASIC':
+        model = "claude-3-7-sonnet-20250219"
+        tokens = 64000
+        thinking = False
+    elif quality == 'PRO':
+        model = "claude-sonnet-4-20250514"
+        tokens = 64000
+        thinking = False
+    elif quality == 'PREMIUM':
+        model = "claude-opus-4-20250514"
+        tokens = 64000
+        thinking = False
+
     return await ask_claude_stream(
         message,
-        lambda text: callback(section_name, text)
+        lambda text: callback(section_name, text),
+        model=model,
+        max_tokens=tokens,
+        thinking=thinking
     )
 
 async def handle_generate_visit_name(websocket_session_id: str, user_id: str, data: dict):

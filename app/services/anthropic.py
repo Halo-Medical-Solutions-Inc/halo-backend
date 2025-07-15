@@ -9,12 +9,12 @@ This module provides a service for interacting with the Anthropic API.
 It includes functionality for streaming and non-streaming responses from the API.
 """
 
-MODEL = "claude-3-7-sonnet-latest"
-MAX_TOKENS = 20000
+MODEL = "claude-3-7-sonnet-20250219"
+MAX_TOKENS = 64000
 
 anthropic_client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-async def ask_claude_stream(message, callback, model=MODEL, max_tokens=MAX_TOKENS):
+async def ask_claude_stream(message, callback, model=MODEL, max_tokens=MAX_TOKENS, thinking=False):
     """
     Streams a response from the Anthropic API.
 
@@ -31,7 +31,8 @@ async def ask_claude_stream(message, callback, model=MODEL, max_tokens=MAX_TOKEN
     async with anthropic_client.messages.stream(
         model=model,
         max_tokens=max_tokens,
-        messages=[{"role": "user", "content": message}]
+        messages=[{"role": "user", "content": message}],
+        **({"thinking": {"type": "enabled", "budget_tokens": 4096}} if thinking else {})
     ) as stream:
         async for text in stream.text_stream:
             full_text += text
