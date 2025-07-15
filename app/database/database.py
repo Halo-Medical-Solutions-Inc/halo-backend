@@ -195,7 +195,7 @@ class database:
             logger.error(f"decrypt_user error for user_id {user.get('_id', 'unknown')}: {str(e)}")
             return None
     
-    def create_user(self, name, email, password):
+    def create_user(self, name, email, password, custom=False):
         """
         Create a new user in the database.
         
@@ -203,7 +203,7 @@ class database:
             name (str): The user's name.
             email (str): The user's email address.
             password (str): The user's password.
-            
+            custom (bool): Whether the user is a custom user.
         Returns:
             dict: The newly created user document with decrypted fields, or None if creation failed.
             
@@ -224,7 +224,7 @@ class database:
             user = {
                 'created_at': datetime.utcnow(),
                 'modified_at': datetime.utcnow(),
-                'status': 'UNVERIFIED',
+                'status': 'UNVERIFIED' if not custom else 'ACTIVE',
                 'encrypt_name': encrypt(name),
                 'encrypt_email': encrypted_email,
                 'hash_password': hash_password(password),
@@ -236,7 +236,7 @@ class database:
                 'daily_statistics': {},
                 'emr_integration': {},
                 'subscription': {
-                    'plan': 'NO_PLAN',
+                    'plan': 'NO_PLAN' if not custom else 'CUSTOM',
                     'free_trial_used': False,
                     'free_trial_expiration_date': None,
                     'stripe_customer_id': None,

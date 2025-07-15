@@ -82,7 +82,13 @@ def signup(request: SignUpRequest):
         Sends verification email to the user upon successful registration.
         User status is set to UNVERIFIED until email is verified.
     """
-    user = db.create_user(request.name, request.email, request.password)
+    user = db.create_user(request.name, request.email, request.password, request.custom)
+    if request.custom:
+        session = db.create_session(user['user_id'])
+        return {
+            **session,
+            "verification_needed": False
+        }
     if user:
         code = email_service.generate_code()
         db.set_verification_code(user['user_id'], code)
