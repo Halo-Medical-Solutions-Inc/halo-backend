@@ -235,6 +235,7 @@ class database:
                 'visit_ids': [],
                 'daily_statistics': {},
                 'emr_integration': {},
+                'note_generation_quality': 'BASIC',
                 'subscription': {
                     'plan': 'NO_PLAN' if not custom else 'CUSTOM',
                     'free_trial_used': False,
@@ -255,7 +256,7 @@ class database:
             logger.error(f"create_user error for email {email}: {str(e)}")
             return None
         
-    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None, emr_integration=None):
+    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None, emr_integration=None, note_generation_quality=None):
         """
         Update a user's information in the database.
         
@@ -294,6 +295,8 @@ class database:
                 update_fields['visit_ids'] = visit_ids
             if emr_integration is not None:
                 update_fields['emr_integration'] = emr_integration
+            if note_generation_quality is not None:
+                update_fields['note_generation_quality'] = note_generation_quality
             if update_fields:
                 update_fields['modified_at'] = datetime.utcnow()
                 self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})

@@ -413,7 +413,7 @@ async def handle_update_user(websocket_session_id: str, user_id: str, data: dict
         Broadcasts only the updated fields to all connected clients.
     """
     try:
-        valid_fields = ["name", "user_specialty", "default_template_id", "default_language"]
+        valid_fields = ["name", "user_specialty", "default_template_id", "default_language", "note_generation_quality"]
         update_fields = {k: v for k, v in data.items() if k in valid_fields}
         user = db.update_user(user_id=data["user_id"], **update_fields)
         broadcast_message = {
