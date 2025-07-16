@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     STRIPE_API_KEY: str
     FRONTEND_URL: str
     BACKEND_URL: str
+    AZURE_API_KEY: str
     class Config:
         env_file = ".env"
 

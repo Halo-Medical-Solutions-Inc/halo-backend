@@ -11,6 +11,7 @@ from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, Prere
 from app.config import settings
 from app.services.connection import manager
 from app.routers.visit import handle_generate_note, handle_generate_visit_name
+from app.services.azure import extract_text_from_bytes  # Add this import
 import PyPDF2
 import docx
 import json
@@ -601,7 +602,7 @@ async def process_file(file: UploadFile = File(...)):
         
     Note:
         - Audio files (.mp3, .wav) are transcribed using Deepgram
-        - PDF files are extracted using PyPDF2
+        - PDF files and images are extracted using Azure Document Intelligence
         - Word documents (.docx) are extracted using python-docx
         - Text files are read directly with encoding detection
         - Other file types return an error
@@ -617,10 +618,8 @@ async def process_file(file: UploadFile = File(...)):
             response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
             return response.results.channels[0].alternatives[0].transcript
         
-        elif file_extension == 'pdf':
-            import io
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
-            return "\n".join(page.extract_text() for page in pdf_reader.pages).strip()
+        elif file_extension in ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'tif']:
+            return extract_text_from_bytes(file_content)
         
         elif file_extension == 'docx':
             import io
@@ -635,7 +634,7 @@ async def process_file(file: UploadFile = File(...)):
         else:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Unsupported file type: {file_extension}. Supported types: mp3, wav, pdf, docx, txt, md, csv, log"
+                detail=f"Unsupported file type: {file_extension}. Supported types: mp3, wav, pdf, images (png, jpg, jpeg, gif, bmp, tiff), docx, txt, md, csv, log"
             )
     except HTTPException:
         raise
