@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from app.database.database import db
 from app.services.logging import logger
 from app.models.requests import VerifyEMRIntegrationRequest, GetPatientsEMRIntegrationRequest, CreateNoteEMRIntegrationRequest
-from app.integrations import officeally, advancemd
+from app.integrations import officeally, advancemd, drchrono
 from app.services.connection import manager
 import json
 from app.services.anthropic import ask_claude_json
@@ -38,6 +38,8 @@ async def verify(request: VerifyEMRIntegrationRequest):
             verified = officeally.verify(request.credentials["username"], request.credentials["password"])
         elif request.emr == "ADVANCEMD":
             verified = advancemd.verify(request.credentials["username"], request.credentials["password"], request.credentials["office_key"], request.credentials["app_name"])
+        elif request.emr == "DR_CHRONO":
+            verified = drchrono.verify(request.credentials["access_token"], request.credentials["refresh_token"], request.credentials["expires_at"])
         else:
             logger.error(f"Unsupported EMR: {request.emr}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
@@ -76,6 +78,9 @@ async def get_patients(request: GetPatientsEMRIntegrationRequest):
             patients = officeally.get_patients(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"))
         elif user.get("emr_integration").get("emr") == "ADVANCEMD":
             patients = advancemd.get_patients(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"))
+        elif user.get("emr_integration").get("emr") == "DR_CHRONO":
+            credentials = user.get("emr_integration").get("credentials")
+            patients = drchrono.get_patients(credentials.get("access_token"), credentials.get("refresh_token"), credentials.get("expires_at"))
         else:
             logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
@@ -111,6 +116,11 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
             json_schema = advancemd.JSON_SCHEMA
             note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
             advancemd.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"), request.patient_id, note)
+        elif user.get("emr_integration").get("emr") == "DR_CHRONO":
+            json_schema = drchrono.JSON_SCHEMA
+            note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
+            credentials = user.get("emr_integration").get("credentials")
+            drchrono.create_note(credentials.get("access_token"), credentials.get("refresh_token"), credentials.get("expires_at"), request.patient_id, note)
         else:
             logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
             raise HTTPException(status_code=400, detail="Unsupported EMR")
