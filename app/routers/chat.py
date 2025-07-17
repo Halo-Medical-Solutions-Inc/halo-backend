@@ -25,7 +25,9 @@ router = APIRouter()
 
 @router.post("/ask")
 async def ask(request: AskRequest):
-    return await ask_claude(request.message, model="claude-3-5-sonnet-latest", max_tokens=8192)
+    async def stream_callback(partial_response):
+        return None
+    return await ask_claude_stream(request.message, stream_callback, model="claude-3-5-sonnet-latest", max_tokens=8192)
 
 @router.websocket("/ws")
 async def chat_websocket(websocket: WebSocket):
