@@ -100,7 +100,13 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
         user = db.get_user(user_id)
         visit = db.get_visit(request.visit_id)
 
-        instructions = "Today's date and time: " + datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + "\n\n" + "Take the existing SOAP note and do NOT edit or concise down any of the words, move the corresponding parts of the note into the Office Ally JSON schema. Keep the content and formatting pretty much exactly the same. Just map the parts.  Ie: Chief complaint content goes into the chief complaint part of the JSON. 'procedure_codes' cannot be an empty list. Omit the field if there are no codes. Do not include any periods in the ICD code (ie: 'I95.9' should be 'I959')."
+        instructions = (
+            "Today's date and time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n\n"
+            "Take the existing SOAP note and do NOT edit or concise down any of the words. Move the corresponding parts of the note into the Office Ally JSON schema. "
+            "Keep the content and formatting exactly the same—just map the parts. For example, chief complaint content goes into the chief complaint part of the JSON. "
+            "If you have no procedure codes to submit, remove the 'procedure_codes' field entirely from the request body rather than sending it as an empty list. "
+            "Do not include any periods in the ICD code (for example, 'I95.9' should be 'I959')."
+        )
         instructions += visit.get("note")
 
         if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
