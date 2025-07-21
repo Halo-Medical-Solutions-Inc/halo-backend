@@ -163,6 +163,7 @@ def create_note(username: str, password: str, patient_id: str, payload: Dict) ->
     Returns:
         True if note created successfully, False otherwise
     """
+    print(payload)
     try:
         access_token, user_id = initialize_token()
         headers = {"INTEGURU-TOKEN": access_token, "INTEGURU-USER-ID": user_id, "Content-Type": "application/json"}
@@ -172,26 +173,14 @@ def create_note(username: str, password: str, patient_id: str, payload: Dict) ->
         if response.status_code != 200:
             raise Exception(f"Failed to add credentials: {response.text}")
         
-        # Build payload dynamically, including each section only if present and non-empty
-        note_payload = {"patient_id": patient_id}
+        note_payload = {"patient_id": patient_id, **{k: payload.get(k, {} if k in ["vital_signs", "soap_notes", "encounter_details"] else []) 
+                       for k in ["diagnosis_codes", "procedure_codes", "vital_signs", "soap_notes", "encounter_details"]}}
+        
+        response = requests.post(f"{SANDBOX_BASE_URL}/ally/create-progressnotes", 
+                               headers={"INTEGURU-TOKEN": access_token, "Content-Type": "application/json"}, 
+                               json=note_payload)
 
-        for k in ["diagnosis_codes", "procedure_codes", "vital_signs", "soap_notes", "encounter_details"]:
-            if k in payload:
-                value = payload[k]
-                # Skip empty values (empty list or empty dict)
-                if isinstance(value, list) and len(value) == 0:
-                    continue
-                if isinstance(value, dict) and len(value) == 0:
-                    continue
-                note_payload[k] = value
-
-        response = requests.post(
-            f"{SANDBOX_BASE_URL}/ally/create-progressnotes",
-            headers={"INTEGURU-TOKEN": access_token, "Content-Type": "application/json"},
-            json=note_payload
-        )
-
-        logger.debug(f"Office Ally response: {response.json()}")
+        print(response.json())
         
         if response.status_code == 200:
             logger.info(f"Progress note created successfully: {response.json()}")
