@@ -101,11 +101,13 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
         visit = db.get_visit(request.visit_id)
 
         instructions = (
-            "Today's date and time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n\n"
-            "Take the existing SOAP note and do NOT edit or concise down any of the words. Move the corresponding parts of the note into the Office Ally JSON schema. "
-            "Keep the content and formatting exactly the same—just map the parts. For example, chief complaint content goes into the chief complaint part of the JSON. "
-            "If you have no procedure codes to submit, remove the 'procedure_codes' field entirely from the request body rather than sending it as an empty list. "
-            "Do not include any periods in the ICD code (for example, 'I95.9' should be 'I959')."
+            "Today's date and time: " + datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + "\n\n"
+            "Take the existing SOAP note and do NOT edit or shorten any of the words. Move the corresponding parts of the note into the Office Ally JSON schema. "
+            "Keep the content and formatting exactly the same—just map the parts. For example, chief complaint content goes into the chief complaint field of the JSON. "
+            "IMPORTANT: If there are no procedure codes to submit, DO NOT include the 'procedure_codes' field at all. "
+            "Do not use an empty list like 'procedure_codes: []' — omit the field entirely if there are no codes. "
+            "Similarly, omit any other fields from the JSON if their values are empty, null, or blank. "
+            "Also, do not include any periods in the ICD-10 codes — for example, 'I95.9' should be 'I959'."
         )
         instructions += visit.get("note")
 
