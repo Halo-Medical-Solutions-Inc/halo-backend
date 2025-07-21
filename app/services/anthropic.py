@@ -1,4 +1,5 @@
 import anthropic
+import httpx
 from app.config import settings
 import json
 
@@ -12,7 +13,17 @@ It includes functionality for streaming and non-streaming responses from the API
 MODEL = "claude-3-7-sonnet-20250219"
 MAX_TOKENS = 64000
 
-anthropic_client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+# Configure an HTTPX client with an extended timeout and keep-alive settings.
+# This helps avoid network idle timeouts for long-running, high-token requests.
+# The read   timeout is set generously (20 minutes) while connect/write remain reasonable.
+_httpx_timeout = httpx.Timeout(read=1200.0, connect=30.0, write=300.0)
+_httpx_client = httpx.AsyncClient(timeout=_httpx_timeout, headers={"Connection": "keep-alive"})
+
+# Instantiate the Anthropic async client with the custom HTTP client.
+anthropic_client = anthropic.AsyncAnthropic(
+    api_key=settings.ANTHROPIC_API_KEY,
+    http_client=_httpx_client,
+)
 
 async def ask_claude_stream(message, callback, model=MODEL, max_tokens=MAX_TOKENS, thinking=False):
     """
