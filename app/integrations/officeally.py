@@ -162,6 +162,7 @@ def create_note(username: str, password: str, patient_id: str, payload: Dict) ->
     Returns:
         True if note created successfully, False otherwise
     """
+    print(payload)
     try:
         access_token, user_id = initialize_token()
         headers = {"INTEGURU-TOKEN": access_token, "INTEGURU-USER-ID": user_id, "Content-Type": "application/json"}
@@ -177,6 +178,8 @@ def create_note(username: str, password: str, patient_id: str, payload: Dict) ->
         response = requests.post(f"{SANDBOX_BASE_URL}/ally/create-progressnotes", 
                                headers={"INTEGURU-TOKEN": access_token, "Content-Type": "application/json"}, 
                                json=note_payload)
+
+        print(response.json())
         
         if response.status_code == 200:
             logger.info(f"Progress note created successfully: {response.json()}")
