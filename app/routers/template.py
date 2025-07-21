@@ -54,7 +54,7 @@ async def handle_update_template(websocket_session_id: str, user_id: str, data: 
         Broadcasts only the updated fields to all connected clients.
     """
     try:
-        valid_fields = ["name", "instructions", "header", "footer"]
+        valid_fields = ["name", "instructions", "header", "footer", "print", "note_generation_quality"]
         update_fields = {k: v for k, v in data.items() if k in valid_fields}
         template = db.update_template(template_id=data["template_id"], **update_fields)
         broadcast_message = {

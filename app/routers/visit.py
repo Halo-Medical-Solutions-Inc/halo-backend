@@ -214,7 +214,7 @@ async def handle_generate_note(websocket_session_id: str, user_id: str, data: di
                 user.get("user_specialty"),
                 user.get("name")
             )
-            tasks.append(generate_section(section['name'], section_message, handle_section_response, user.get("note_generation_quality")))
+            tasks.append(generate_section(section['name'], section_message, handle_section_response, template.get("note_generation_quality", "BASIC")))
         await asyncio.gather(*tasks)
         
         final_note = ""
@@ -299,6 +299,8 @@ async def generate_section(section_name, message, callback, quality='BASIC'):
         model = "claude-opus-4-20250514"
         tokens = 32000
         thinking = False
+
+    print(f"Generating section {section_name} with model {model} and quality {quality}")
 
     return await ask_claude_stream(
         message,

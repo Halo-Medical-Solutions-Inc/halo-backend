@@ -235,7 +235,6 @@ class database:
                 'visit_ids': [],
                 'daily_statistics': {},
                 'emr_integration': {},
-                'note_generation_quality': 'BASIC',
                 'subscription': {
                     'plan': 'NO_PLAN' if not custom else 'CUSTOM',
                     'free_trial_used': False,
@@ -256,7 +255,7 @@ class database:
             logger.error(f"create_user error for email {email}: {str(e)}")
             return None
         
-    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None, emr_integration=None, note_generation_quality=None):
+    def update_user(self, user_id, name=None, email=None, password=None, user_specialty=None, default_template_id=None, default_language=None, template_ids=None, visit_ids=None, emr_integration=None):
         """
         Update a user's information in the database.
         
@@ -295,8 +294,6 @@ class database:
                 update_fields['visit_ids'] = visit_ids
             if emr_integration is not None:
                 update_fields['emr_integration'] = emr_integration
-            if note_generation_quality is not None:
-                update_fields['note_generation_quality'] = note_generation_quality
             if update_fields:
                 update_fields['modified_at'] = datetime.utcnow()
                 self.users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
@@ -499,6 +496,7 @@ class database:
                 'encrypt_print': encrypt(''),
                 'encrypt_header': encrypt(''),
                 'encrypt_footer': encrypt(''),
+                'note_generation_quality': 'BASIC',
             }
             self.templates.insert_one(template)
             self.users.update_one({'_id': ObjectId(user_id)}, {'$push': {'template_ids': template['_id']}})
@@ -507,7 +505,7 @@ class database:
             logger.error(f"create_template error for user_id {user_id}: {str(e)}")
             return None
 
-    def update_template(self, template_id, status=None, name=None, instructions=None, print=None, header=None, footer=None):
+    def update_template(self, template_id, status=None, name=None, instructions=None, print=None, header=None, footer=None, note_generation_quality=None):
         """
         Update a template's information in the database.
         
@@ -536,6 +534,8 @@ class database:
                 update_fields['encrypt_header'] = encrypt(header)
             if footer is not None:
                 update_fields['encrypt_footer'] = encrypt(footer)
+            if note_generation_quality is not None:
+                update_fields['note_generation_quality'] = note_generation_quality
             if instructions is not None:
                 update_fields['modified_at'] = datetime.utcnow()
             if update_fields:
@@ -783,6 +783,7 @@ class database:
                 'encrypt_print': encrypt(print),
                 'encrypt_header': encrypt(header),
                 'encrypt_footer': encrypt(footer),
+                'note_generation_quality': 'BASIC',
             }
             self.templates.insert_one(template)
             self.users.update_many({}, {'$push': {'template_ids': template['_id']}})
@@ -791,7 +792,7 @@ class database:
             logger.error(f"create_default_template error for name {name}: {str(e)}")
             return None
 
-    def update_default_template(self, template_id, name=None, instructions=None, print=None, header=None, footer=None):
+    def update_default_template(self, template_id, name=None, instructions=None, print=None, header=None, footer=None, note_generation_quality=None):
         """
         Update a default template.
         
@@ -818,6 +819,8 @@ class database:
                 update_fields['encrypt_header'] = encrypt(header)
             if footer is not None:
                 update_fields['encrypt_footer'] = encrypt(footer)
+            if note_generation_quality is not None:
+                update_fields['note_generation_quality'] = note_generation_quality
             if update_fields:
                 update_fields['modified_at'] = datetime.utcnow()
                 self.templates.update_one({'_id': ObjectId(template_id)}, {'$set': update_fields})
