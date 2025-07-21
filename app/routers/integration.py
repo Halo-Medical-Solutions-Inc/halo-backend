@@ -10,6 +10,29 @@ from datetime import datetime
 
 router = APIRouter()
 
+def clean_note_payload(note_payload: dict) -> dict:
+    """
+    Clean the note payload by removing empty procedure_codes field.
+    
+    Args:
+        note_payload (dict): The note payload from Claude
+        
+    Returns:
+        dict: Cleaned note payload with empty procedure_codes field removed
+    """
+    # Create a copy to avoid modifying the original
+    cleaned_payload = note_payload.copy()
+    
+    # Check if procedure_codes exists and is empty
+    if 'procedure_codes' in cleaned_payload:
+        procedure_codes = cleaned_payload['procedure_codes']
+        if isinstance(procedure_codes, list) and len(procedure_codes) == 0:
+            # Remove the entire procedure_codes field if it's an empty list
+            del cleaned_payload['procedure_codes']
+            logger.info("Removed empty procedure_codes field from note payload")
+    
+    return cleaned_payload
+
 @router.post("/verify")
 async def verify(request: VerifyEMRIntegrationRequest):
     """
@@ -114,10 +137,12 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
         if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
             json_schema = officeally.JSON_SCHEMA
             note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
+            note = clean_note_payload(note)
             officeally.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), request.patient_id, note)
         elif user.get("emr_integration").get("emr") == "ADVANCEMD":
             json_schema = advancemd.JSON_SCHEMA
             note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
+            note = clean_note_payload(note)
             advancemd.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"), request.patient_id, note)
         else:
             logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")
