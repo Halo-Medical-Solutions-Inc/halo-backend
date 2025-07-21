@@ -297,7 +297,7 @@ async def generate_section(section_name, message, callback, quality='BASIC'):
         thinking = False
     elif quality == 'PREMIUM':
         model = "claude-opus-4-20250514"
-        tokens = 64000
+        tokens = 32000
         thinking = False
 
     return await ask_claude_stream(
