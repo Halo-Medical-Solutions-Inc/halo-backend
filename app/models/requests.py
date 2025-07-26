@@ -387,6 +387,15 @@ class CheckSubscriptionRequest(BaseModel):
 class StartFreeTrialRequest(BaseModel):
     user_id: str
 
+class ConvertToCustomPlanRequest(BaseModel):
+    """
+    Request model to convert a user to a custom plan.
+    
+    Fields:
+        user_email (str): The email of the user to convert to custom plan.
+    """
+    user_email: str
+
 class PauseRecordingRequest(BaseModel):
     session_id: str
     visit_id: str
