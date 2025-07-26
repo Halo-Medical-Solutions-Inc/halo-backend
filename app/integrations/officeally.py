@@ -13,9 +13,6 @@ Generate everything to the best of your ability.
 
 """
 JSON_SCHEMA = """
-
-Notes:
-- If there are no CPT codes to submit, you must omit the entire procedure_codes field from the request — not just leave it as an empty list.
 {
    "soap_notes": {
     "ChiefComplaint": "string",
@@ -47,7 +44,7 @@ Notes:
       "description": "string"
     }
   ],
-  "procedure_codes": [
+  "procedure_codes" (optional field, do not include if empty list): [
     {
       "code": "string (required, cannot be empty)",
       "description": "string",
@@ -176,8 +173,17 @@ def create_note(username: str, password: str, patient_id: str, payload: Dict) ->
         if response.status_code != 200:
             raise Exception(f"Failed to add credentials: {response.text}")
         
-        note_payload = {"patient_id": patient_id, **{k: payload.get(k, {} if k in ["vital_signs", "soap_notes", "encounter_details"] else []) 
-                       for k in ["diagnosis_codes", "procedure_codes", "vital_signs", "soap_notes", "encounter_details"]}}
+        note_payload = {"patient_id": patient_id}
+        
+        # Add required fields
+        for k in ["diagnosis_codes", "vital_signs", "soap_notes", "encounter_details"]:
+            if k in ["vital_signs", "soap_notes", "encounter_details"]:
+                note_payload[k] = payload.get(k, {})
+            else:
+                note_payload[k] = payload.get(k, [])
+        
+        if payload.get("procedure_codes"):
+            note_payload["procedure_codes"] = payload["procedure_codes"]
         
         response = requests.post(f"{SANDBOX_BASE_URL}/ally/create-progressnotes", 
                                headers={"INTEGURU-TOKEN": access_token, "Content-Type": "application/json"}, 
