@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.database.database import db
-from app.models.requests import CreateDefaultTemplateRequest, DeleteDefaultTemplateRequest, GetDefaultTemplateRequest, DeleteAllVisitsForUserRequest, GetUserStatsRequest, AdminSigninRequest, AdminSignupRequest, GetAdminRequest, UpdateAdminRequest, UpdateDefaultTemplateRequest
+from app.models.requests import CreateDefaultTemplateRequest, DeleteDefaultTemplateRequest, GetDefaultTemplateRequest, DeleteAllVisitsForUserRequest, GetUserStatsRequest, AdminSigninRequest, AdminSignupRequest, GetAdminRequest, UpdateAdminRequest, UpdateDefaultTemplateRequest, ConvertToCustomPlanRequest
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -294,3 +294,43 @@ def delete_all_visits_for_user(request: DeleteAllVisitsForUserRequest):
         return {"message": "All visits deleted"}
     else:
         raise HTTPException(status_code=401, detail="Invalid user")
+
+@router.post("/convert_to_custom_plan")
+async def convert_to_custom_plan(request: ConvertToCustomPlanRequest):
+    """
+    Convert a user to a custom plan.
+
+    This endpoint allows the admin to convert a user to a custom plan by specifying their email.
+    The custom plan allows unlimited access without requiring a Stripe subscription.
+
+    Args:
+        user_email (str): The email of the user to convert to custom plan.
+
+    Returns:
+        dict: The updated user information with custom plan.
+        
+    Raises:
+        HTTPException: If user is not found.
+    """
+    user = db.get_user_by_email(request.user_email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update user to custom plan
+    updated_user = db.update_user_subscription(
+        user_id=user['user_id'],
+        plan='CUSTOM'
+    )
+    
+    if updated_user:
+        return {
+            "message": "User successfully converted to custom plan",
+            "user": {
+                "user_id": updated_user['user_id'],
+                "email": updated_user['email'],
+                "name": updated_user['name'],
+                "subscription": updated_user['subscription']
+            }
+        }
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update user subscription")

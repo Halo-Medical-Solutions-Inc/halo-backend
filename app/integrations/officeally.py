@@ -9,10 +9,13 @@ SANDBOX_BASE_URL = "https://sandbox.integuru.ai"
 INTEGURU_SECRET = "972E16B5A8F4879C5573A16963334"
 
 INSTRUCTIONS = """
-Generate everything to the best of your ability. If there are no CPT codes to submit, you must omit the entire procedure_codes field from the request — not just leave it as an empty list.
+Generate everything to the best of your ability. 
 
 """
 JSON_SCHEMA = """
+
+Notes:
+- If there are no CPT codes to submit, you must omit the entire procedure_codes field from the request — not just leave it as an empty list.
 {
    "soap_notes": {
     "ChiefComplaint": "string",
