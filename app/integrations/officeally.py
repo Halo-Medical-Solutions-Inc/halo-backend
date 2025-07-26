@@ -40,7 +40,7 @@ JSON_SCHEMA = """
   },
   "diagnosis_codes": [
     {
-      "code": "string (required, cannot be empty)",
+      "code": "string (required, cannot be empty, use the non-decimal version of the icd code)",
       "description": "string"
     }
   ],
