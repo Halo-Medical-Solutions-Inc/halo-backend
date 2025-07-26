@@ -44,7 +44,7 @@ JSON_SCHEMA = """
       "description": "string"
     }
   ],
-  "procedure_codes" (optional field, do not include if empty list): [
+  "procedure_codes": [
     {
       "code": "string (required, cannot be empty)",
       "description": "string",
