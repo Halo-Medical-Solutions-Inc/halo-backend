@@ -10,6 +10,29 @@ from datetime import datetime
 
 router = APIRouter()
 
+def clean_note_payload(note_payload: dict) -> dict:
+    """
+    Clean the note payload by removing empty procedure_codes field.
+    
+    Args:
+        note_payload (dict): The note payload from Claude
+        
+    Returns:
+        dict: Cleaned note payload with empty procedure_codes field removed
+    """
+    # Create a copy to avoid modifying the original
+    cleaned_payload = note_payload.copy()
+    
+    # Check if procedure_codes exists and is empty
+    if 'procedure_codes' in cleaned_payload:
+        procedure_codes = cleaned_payload['procedure_codes']
+        if isinstance(procedure_codes, list) and len(procedure_codes) == 0:
+            # Remove the entire procedure_codes field if it's an empty list
+            del cleaned_payload['procedure_codes']
+            logger.info("Removed empty procedure_codes field from note payload")
+    
+    return cleaned_payload
+
 @router.post("/verify")
 async def verify(request: VerifyEMRIntegrationRequest):
     """
@@ -100,16 +123,26 @@ async def create_note(request: CreateNoteEMRIntegrationRequest):
         user = db.get_user(user_id)
         visit = db.get_visit(request.visit_id)
 
-        instructions = "Today's date and time: " + datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + "\n\n" + "Take the existing SOAP note and do NOT edit or concise down any of the words, move the corresponding parts of the note into the Office Ally JSON schema. Keep the content and formatting pretty much exactly the same. Just map the parts.  Ie: Chief complaint content goes into the chief complaint part of the JSON"
+        instructions = (
+            "Today's date and time: " + datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + "\n\n"
+            "Take the existing SOAP note and do NOT edit or shorten any of the words. Move the corresponding parts of the note into the Office Ally JSON schema. "
+            "Keep the content and formatting exactly the same—just map the parts. For example, chief complaint content goes into the chief complaint field of the JSON. "
+            "IMPORTANT: If there are no procedure codes to submit, DO NOT include the 'procedure_codes' field at all. "
+            "Do not use an empty list like 'procedure_codes: []' — omit the field entirely if there are no codes. "
+            "Similarly, omit any other fields from the JSON if their values are empty, null, or blank. "
+            "Also, do not include any periods in the ICD-10 codes — for example, 'I95.9' should be 'I959'."
+        )
         instructions += visit.get("note")
 
         if user.get("emr_integration").get("emr") == "OFFICE_ALLY":
             json_schema = officeally.JSON_SCHEMA
             note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
+            note = clean_note_payload(note)
             officeally.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), request.patient_id, note)
         elif user.get("emr_integration").get("emr") == "ADVANCEMD":
             json_schema = advancemd.JSON_SCHEMA
             note = await ask_claude_json(instructions, json_schema, model="claude-sonnet-4-20250514", max_tokens=64000)
+            note = clean_note_payload(note)
             advancemd.create_note(user.get("emr_integration").get("credentials").get("username"), user.get("emr_integration").get("credentials").get("password"), user.get("emr_integration").get("credentials").get("office_key"), user.get("emr_integration").get("credentials").get("app_name"), request.patient_id, note)
         else:
             logger.error(f"Unsupported EMR: {user.get('emr_integration').get('emr')}")

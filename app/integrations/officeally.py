@@ -9,7 +9,8 @@ SANDBOX_BASE_URL = "https://sandbox.integuru.ai"
 INTEGURU_SECRET = "972E16B5A8F4879C5573A16963334"
 
 INSTRUCTIONS = """
-Generate everything to the best of your ability.
+Generate everything to the best of your ability. If there are no CPT codes to submit, you must omit the entire procedure_codes field from the request — not just leave it as an empty list.
+
 """
 JSON_SCHEMA = """
 {
