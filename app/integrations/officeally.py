@@ -49,7 +49,7 @@ JSON_SCHEMA = """
       "code": "string (required, cannot be empty)",
       "description": "string",
       "pos": "11",
-      "fee": "string",
+      "fee": "string, numeric value, no dollar sign",
       "units": "1"
     }
   ],
